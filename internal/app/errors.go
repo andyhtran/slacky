@@ -12,6 +12,7 @@ type AppError struct {
 	Message           string   `json:"message"`
 	Usage             string   `json:"usage,omitempty"`
 	Examples          []string `json:"examples,omitempty"`
+	Suggestions       []string `json:"suggestions,omitempty"`
 	SuggestedCommands []string `json:"suggested_commands,omitempty"`
 }
 
@@ -30,6 +31,20 @@ func (err *AppError) Error() string {
 		for _, example := range err.Examples {
 			builder.WriteString("\n  ")
 			builder.WriteString(example)
+		}
+	}
+	if len(err.Suggestions) > 0 {
+		builder.WriteString("\n\nSuggestions:")
+		for _, suggestion := range err.Suggestions {
+			builder.WriteString("\n  ")
+			builder.WriteString(suggestion)
+		}
+	}
+	if len(err.SuggestedCommands) > 0 {
+		builder.WriteString("\n\nCommands:")
+		for _, command := range err.SuggestedCommands {
+			builder.WriteString("\n  ")
+			builder.WriteString(command)
 		}
 	}
 	return builder.String()

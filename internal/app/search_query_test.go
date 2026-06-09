@@ -9,31 +9,31 @@ import (
 
 func TestExpandSearchUserHandles(t *testing.T) {
 	resolve := func(handle string) (api.UserResult, bool) {
-		if handle != "alex" {
+		if handle != "sample" {
 			return api.UserResult{}, false
 		}
-		return api.UserResult{ID: "U123", Name: "alex"}, true
+		return api.UserResult{ID: "U123", Name: "sample"}, true
 	}
 
-	query, expansions := expandSearchUserHandles("@alex from:@alex person@example.com", resolve)
+	query, expansions := expandSearchUserHandles("@sample from:@sample person@example.com", resolve)
 	want := "<@U123> from:<@U123> person@example.com"
 	if query != want {
 		t.Fatalf("expanded query = %q, want %q", query, want)
 	}
-	if len(expansions) != 1 || expansions[0].Handle != "@alex" || expansions[0].UserID != "U123" {
+	if len(expansions) != 1 || expansions[0].Handle != "@sample" || expansions[0].UserID != "U123" {
 		t.Fatalf("unexpected expansions: %#v", expansions)
 	}
 }
 
 func TestExpandSearchUserHandlesAcceptsFromWithoutAtAndUserID(t *testing.T) {
 	resolve := func(handle string) (api.UserResult, bool) {
-		if handle != "alex" {
+		if handle != "sample" {
 			return api.UserResult{}, false
 		}
-		return api.UserResult{ID: "U123", RealName: "alex"}, true
+		return api.UserResult{ID: "U123", RealName: "sample"}, true
 	}
 
-	query, expansions := expandSearchUserHandles("from:alex from:U456 U789", resolve)
+	query, expansions := expandSearchUserHandles("from:sample from:U456 U789", resolve)
 	want := "from:<@U123> from:<@U456> <@U789>"
 	if query != want {
 		t.Fatalf("expanded query = %q, want %q", query, want)
@@ -45,26 +45,26 @@ func TestExpandSearchUserHandlesAcceptsFromWithoutAtAndUserID(t *testing.T) {
 
 func TestExpandSearchUserHandlesAcceptsBareSingleUserQuery(t *testing.T) {
 	resolve := func(handle string) (api.UserResult, bool) {
-		if handle != "nanoalex" {
+		if handle != "samplealias" {
 			return api.UserResult{}, false
 		}
-		return api.UserResult{ID: "U123", Name: "nanoalex", RealName: "alex"}, true
+		return api.UserResult{ID: "U123", Name: "samplealias", RealName: "sample"}, true
 	}
 
-	query, expansions := expandSearchUserHandles("nanoalex", resolve)
+	query, expansions := expandSearchUserHandles("samplealias", resolve)
 	if query != "<@U123>" {
 		t.Fatalf("expanded bare query = %q", query)
 	}
-	if len(expansions) != 1 || expansions[0].Handle != "@nanoalex" || expansions[0].Name != "alex" {
+	if len(expansions) != 1 || expansions[0].Handle != "@samplealias" || expansions[0].Name != "sample" {
 		t.Fatalf("unexpected expansions: %#v", expansions)
 	}
 }
 
 func TestExpandSearchUserHandlesDoesNotRewriteMultiWordText(t *testing.T) {
-	query, expansions := expandSearchUserHandles("nanoalex rollout", func(string) (api.UserResult, bool) {
-		return api.UserResult{ID: "U123", Name: "nanoalex", RealName: "alex"}, true
+	query, expansions := expandSearchUserHandles("samplealias rollout", func(string) (api.UserResult, bool) {
+		return api.UserResult{ID: "U123", Name: "samplealias", RealName: "sample"}, true
 	})
-	if query != "nanoalex rollout" {
+	if query != "samplealias rollout" {
 		t.Fatalf("multi-word text should not be rewritten: %q", query)
 	}
 	if len(expansions) != 0 {
@@ -106,9 +106,9 @@ func TestExpandSearchChannels(t *testing.T) {
 
 func TestMatchUserHandleUsesUniqueVisibleName(t *testing.T) {
 	users := []api.UserResult{
-		{ID: "U123", Name: "nanoalex", RealName: "alex"},
+		{ID: "U123", Name: "samplealias", RealName: "sample"},
 	}
-	user, ok := matchUserHandle(users, "alex")
+	user, ok := matchUserHandle(users, "sample")
 	if !ok || user.ID != "U123" {
 		t.Fatalf("expected unique real-name match, got ok=%t user=%#v", ok, user)
 	}
@@ -116,22 +116,47 @@ func TestMatchUserHandleUsesUniqueVisibleName(t *testing.T) {
 
 func TestMatchUserHandleUsesUniqueFuzzyName(t *testing.T) {
 	users := []api.UserResult{
-		{ID: "U123", Name: "nanoalex", RealName: "alex"},
+		{ID: "U123", Name: "samplealias", RealName: "sample"},
 	}
-	user, ok := matchUserHandle(users, "alxe")
+	user, ok := matchUserHandle(users, "smaple")
 	if !ok || user.ID != "U123" {
 		t.Fatalf("expected fuzzy handle match, got ok=%t user=%#v", ok, user)
 	}
 }
 
+func TestMatchUserHandleUsesUniquePartialName(t *testing.T) {
+	users := []api.UserResult{
+		{ID: "U123", Name: "sample.person", RealName: "Sample Person"},
+		{ID: "U456", Name: "placeholder.user", RealName: "Placeholder User"},
+	}
+	user, ok := matchUserHandle(users, "sam")
+	if !ok || user.ID != "U123" {
+		t.Fatalf("expected partial visible-name match, got ok=%t user=%#v", ok, user)
+	}
+}
+
 func TestMatchUserHandleSkipsAmbiguousVisibleName(t *testing.T) {
 	users := []api.UserResult{
-		{ID: "U123", Name: "first", RealName: "alex"},
-		{ID: "U456", Name: "second", DisplayName: "alex"},
+		{ID: "U123", Name: "sampleone", RealName: "sample"},
+		{ID: "U456", Name: "sampletwo", DisplayName: "sample"},
 	}
-	user, ok := matchUserHandle(users, "alex")
+	user, ok := matchUserHandle(users, "sample")
 	if ok {
 		t.Fatalf("ambiguous visible name should not resolve, got %#v", user)
+	}
+}
+
+func TestMatchUserHandleReturnsSuggestionsForAmbiguousPartialName(t *testing.T) {
+	users := []api.UserResult{
+		{ID: "U123", Name: "sample.one", RealName: "Sample One"},
+		{ID: "U456", Name: "sample.two", RealName: "Sample Two"},
+	}
+	_, suggestions, ok := matchUserHandleWithSuggestions(users, "sample")
+	if ok {
+		t.Fatalf("ambiguous partial should not resolve")
+	}
+	if len(suggestions) != 2 {
+		t.Fatalf("expected suggestions, got %#v", suggestions)
 	}
 }
 
@@ -145,6 +170,49 @@ func TestFilterChannelsHandlesSlackMentionAndFuzzyName(t *testing.T) {
 	}
 	if got := filterChannels(channels, "genral"); len(got) != 1 || got[0].ID != "C123" {
 		t.Fatalf("fuzzy channel name did not resolve: %#v", got)
+	}
+}
+
+func TestCompactMessageResultsIncludeRootAwareCommands(t *testing.T) {
+	results := compactMessageResults([]api.MessageResult{{
+		ChannelID: "C123",
+		TS:        "1717440000.000100",
+		RootTS:    "1717440000.000000",
+		Permalink: "https://example.slack.com/archives/C123/p1717440000000100?thread_ts=1717440000.000000",
+		Excerpt:   "reply text",
+	}})
+	if len(results) != 1 {
+		t.Fatalf("expected one result, got %#v", results)
+	}
+	commands := results[0].Commands
+	if commands.Thread != "slacky thread --channel C123 --ts 1717440000.000000" {
+		t.Fatalf("thread command = %q", commands.Thread)
+	}
+	if commands.Context != "slacky context --channel C123 --ts 1717440000.000100" {
+		t.Fatalf("context command = %q", commands.Context)
+	}
+	if commands.RootContext != "slacky context --channel C123 --ts 1717440000.000000" {
+		t.Fatalf("root context command = %q", commands.RootContext)
+	}
+	if commands.Open == "" {
+		t.Fatalf("expected open command")
+	}
+}
+
+func TestCompactMessageResultsDoNotSynthesizeThreadTS(t *testing.T) {
+	results := compactMessageResults([]api.MessageResult{{
+		ChannelID: "C123",
+		TS:        "1717440000.000000",
+		Excerpt:   "standalone text",
+	}})
+	if len(results) != 1 {
+		t.Fatalf("expected one result, got %#v", results)
+	}
+	if results[0].ThreadTS != "" {
+		t.Fatalf("thread_ts should not be synthesized for standalone messages, got %q", results[0].ThreadTS)
+	}
+	if results[0].RootTS != "1717440000.000000" {
+		t.Fatalf("root_ts = %q", results[0].RootTS)
 	}
 }
 
@@ -258,8 +326,8 @@ func TestRenderSearchMessageListCompact(t *testing.T) {
 
 func TestMessagesWithDisplayMentionsUsesResolvedLabels(t *testing.T) {
 	messages := []api.MessageResult{{Excerpt: "<@U123> and @U123"}}
-	display := messagesWithDisplayMentions(messages, map[string]string{"U123": "@alex"})
-	if display[0].Excerpt != "@alex and @alex" {
+	display := messagesWithDisplayMentions(messages, map[string]string{"U123": "@sample"})
+	if display[0].Excerpt != "@sample and @sample" {
 		t.Fatalf("expanded display excerpt = %q", display[0].Excerpt)
 	}
 	if messages[0].Excerpt != "<@U123> and @U123" {
@@ -272,15 +340,15 @@ func TestMessagesWithDisplayMentionsResolvesSender(t *testing.T) {
 		User:    "U123",
 		Excerpt: "Mentioned @U123 in text",
 	}}
-	display := messagesWithDisplayMentions(messages, map[string]string{"U123": "@alex"})
-	if display[0].Username != "alex" || display[0].Excerpt != "Mentioned @alex in text" {
+	display := messagesWithDisplayMentions(messages, map[string]string{"U123": "@sample"})
+	if display[0].Username != "sample" || display[0].Excerpt != "Mentioned @sample in text" {
 		t.Fatalf("display message = %#v", display[0])
 	}
 }
 
 func TestUserMentionLabelPrefersVisibleName(t *testing.T) {
-	user := api.UserResult{ID: "U123", Name: "nanoalex", RealName: "alex"}
-	if got := userMentionLabel(user); got != "alex" {
+	user := api.UserResult{ID: "U123", Name: "samplealias", RealName: "sample"}
+	if got := userMentionLabel(user); got != "sample" {
 		t.Fatalf("user label = %q", got)
 	}
 }

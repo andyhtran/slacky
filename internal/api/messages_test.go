@@ -32,6 +32,19 @@ func TestSearchMessageResultFallsBackToBlockText(t *testing.T) {
 	}
 }
 
+func TestSearchMessageResultInfersThreadTSFromPermalink(t *testing.T) {
+	message := searchMessage{
+		TS:        "1.000001",
+		Permalink: "https://example.slack.com/archives/C123/p1000001?thread_ts=1.000000&cid=C123",
+		Channel:   searchChannel{ID: "C123", Name: "general"},
+		Text:      "reply hit",
+	}
+	result := message.result(false)
+	if result.ThreadTS != "1.000000" || result.RootTS != "1.000000" {
+		t.Fatalf("thread/root ts = %q/%q, want inferred root", result.ThreadTS, result.RootTS)
+	}
+}
+
 func TestRichTextFromPartsRendersSlackBlocksAttachmentsAndFiles(t *testing.T) {
 	blocks := json.RawMessage(`[
 		{"type":"header","text":{"type":"plain_text","text":"Launch Review"}},

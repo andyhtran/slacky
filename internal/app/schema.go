@@ -22,8 +22,8 @@ type commandSchema struct {
 
 func (cmd *SchemaCmd) Run(globals *Globals) error {
 	commands := []commandSchema{
-		{Name: "search", Summary: "Search Slack messages; human output is compact by default and --evidence shows detailed per-result commands; live search expands @handles, from:handles, raw user IDs, and in:channels when resolvable", Examples: []string{"slacky search \"from:@someone has:link\"", "slacky search \"from:someone\"", "slacky search \"in:#general release\"", "slacky search --evidence \"release notes\"", "slacky search --local \"release notes\""}, ResultShape: "Envelope{results,search,cache_notice}"},
-		{Name: "find", Summary: "Rank whole conversations for a topic", Examples: []string{"slacky find \"release blocker\""}, ResultShape: "Envelope{threads,search}"},
+		{Name: "search", Summary: "Search Slack messages; --json --compact returns agent-ready IDs, timestamps, excerpts, and follow-up commands; live search expands @handles, from:handles, raw user IDs, and in:channels when resolvable", Examples: []string{"slacky search \"from:@someone has:link\" --json --compact", "slacky search \"from:someone\"", "slacky search \"in:#general release\"", "slacky search --evidence \"release notes\"", "slacky search --local \"release notes\" --json --compact"}, ResultShape: "Envelope{results,search,cache_notice}"},
+		{Name: "find", Summary: "Rank whole conversations for a topic", Examples: []string{"slacky find \"release blocker\" --json --compact"}, ResultShape: "Envelope{threads,search}"},
 		{Name: "message", Summary: "Fetch one message", Examples: []string{"slacky message --channel C123 --ts 1717440000.000000"}, ResultShape: "Envelope{message}"},
 		{Name: "thread", Summary: "Fetch a thread", Examples: []string{"slacky thread --channel C123 --ts 1717440000.000000"}, ResultShape: "Envelope{thread}"},
 		{Name: "context", Summary: "Fetch surrounding context", Examples: []string{"slacky context --channel C123 --ts 1717440000.000000"}, ResultShape: "Envelope{results}"},
@@ -58,7 +58,8 @@ func (cmd *SchemaCmd) Run(globals *Globals) error {
 		"search_syntax": map[string]any{
 			"live_channel_expansion": "in:#channel, in:channel, and in:CHANNELID are rewritten to Slack search channel names when one exact or close fuzzy match resolves.",
 			"live_handle_expansion":  "@handle, from:handle, from:@handle, raw USERID, and from:USERID are rewritten to Slack <@USERID> syntax when one exact or close fuzzy user match resolves.",
-			"agent_metadata":         "Search JSON includes search.meta.query, search.meta.slack_query, search.meta.user_expansions, and search.meta.channel_expansions when expansion occurs.",
+			"agent_metadata":         "Search JSON includes search.meta.query, search.meta.slack_query, search.meta.user_expansions, and search.meta.channel_expansions when expansion occurs. Compact search results include commands.message, commands.thread, commands.context, commands.root_context, and commands.open when available.",
+			"compact_json":           "Use --json --compact for search/find agent workflows; it omits rendered human text and cache detail while preserving result IDs, timestamps, permalinks, excerpts, and follow-up commands.",
 			"local_search":           "--local searches the SQLite cache and does not call Slack or expand handles/channels through Slack APIs.",
 		},
 	}
@@ -102,8 +103,8 @@ func (cmd *AgentContextCmd) Run(globals *Globals) error {
 			"slacky skills get core",
 			"slacky skills get setup",
 			"slacky skill install",
-			"slacky search --local \"release notes\"",
-			"slacky search \"from:@someone has:link\"",
+			"slacky search --local \"release notes\" --json --compact",
+			"slacky search \"from:@someone has:link\" --json --compact",
 			"slacky search \"@someone\" --json",
 			"slacky user @someone --json",
 			"slacky open <slack-url> --mode thread",
@@ -111,7 +112,7 @@ func (cmd *AgentContextCmd) Run(globals *Globals) error {
 		"search_syntax": map[string]any{
 			"channel_expansion": "Use in:#channel, in:channel, or in:CHANNELID; close typos resolve only when one channel is the clear match.",
 			"handle_expansion":  "Use @handle, from:handle, from:@handle, raw USERID, or from:USERID in live search; close typos resolve only when one user is the clear match.",
-			"context_followups": "Use result channel_id/root_ts with thread, channel_id/ts with context, or open a Slack archive permalink.",
+			"context_followups": "Use result commands when present. For threaded hits, use root_ts/thread_ts with thread, ts with context, and root_ts with root_context when surrounding root-channel context is needed.",
 		},
 	}
 	text := strings.Join([]string{

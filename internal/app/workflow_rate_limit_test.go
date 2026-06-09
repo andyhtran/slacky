@@ -122,6 +122,23 @@ func TestThreadCommandResolvesCachedReplyTimestampToRoot(t *testing.T) {
 	}
 }
 
+func TestContextCommandUsesCachedReplyTimestampRoot(t *testing.T) {
+	fixture := setupWorkflowCache(t)
+	recordWorkflowCooldown(t, fixture.CachePath, "conversations.replies")
+
+	envelope := runWorkflowJSON(t, func(globals *Globals) error {
+		return (&ContextCmd{Channel: workflowChannelID, TS: workflowReplyTS, Before: 1, After: 1}).Run(globals)
+	})
+
+	assertCacheFallback(t, envelope, "conversations.replies")
+	if envelope.Thread.RootTS != workflowRootTS {
+		t.Fatalf("context should use cached reply root, got %#v", envelope.Thread)
+	}
+	if len(envelope.Results) != 2 || envelope.Results[1].TS != workflowReplyTS {
+		t.Fatalf("expected containing thread messages, got %#v", envelope.Results)
+	}
+}
+
 func TestOpenReplyPermalinkRoutesToMessageAndThreadModes(t *testing.T) {
 	fixture := setupWorkflowCache(t)
 	recordWorkflowCooldown(t, fixture.CachePath, "conversations.replies")

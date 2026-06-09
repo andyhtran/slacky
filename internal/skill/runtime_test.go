@@ -60,10 +60,13 @@ func TestStubMarkdownRoutesSetupAndCore(t *testing.T) {
 	for _, want := range []string{
 		"slacky skills get core",
 		"slacky skills get setup",
-		"setting up",
+		"Start search tasks directly",
 	} {
 		if !strings.Contains(markdown, want) {
 			t.Fatalf("stub markdown missing %q\n%s", want, markdown)
 		}
+	}
+	if strings.Contains(markdown, "before live searches") {
+		t.Fatalf("stub markdown should not require diagnostic preflight:\n%s", markdown)
 	}
 }

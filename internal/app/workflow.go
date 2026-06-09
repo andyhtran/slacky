@@ -40,6 +40,7 @@ type SearchCmd struct {
 	Sort               string   `help:"Slack search sort" enum:"score,timestamp" default:"score" name:"sort"`
 	Verbose            bool     `help:"Return full message text" name:"verbose"`
 	IncludeRichContent bool     `help:"Include Slack blocks, attachments, and files where available" name:"include-rich-content"`
+	Compact            bool     `help:"Return compact agent-friendly JSON without rendered text or cache detail" name:"compact"`
 	Local              bool     `help:"Search only the local SQLite cache" name:"local"`
 	GroupByThread      bool     `help:"Return ranked threads instead of individual hits" name:"group-by-thread"`
 	Evidence           bool     `help:"Show detailed per-result evidence and commands" name:"evidence"`
@@ -50,6 +51,7 @@ type FindCmd struct {
 	Count              int      `help:"Maximum ranked threads; alias: --limit" default:"10" name:"count" aliases:"limit"`
 	Verbose            bool     `help:"Return full message text" name:"verbose"`
 	IncludeRichContent bool     `help:"Include Slack blocks, attachments, and files where available" name:"include-rich-content"`
+	Compact            bool     `help:"Return compact agent-friendly JSON without rendered text or cache detail" name:"compact"`
 }
 
 type MessageCmd struct {
@@ -134,6 +136,40 @@ type searchChannelExpansion struct {
 	Name      string `json:"name,omitempty"`
 }
 
+type resultCommands struct {
+	Message     string `json:"message,omitempty"`
+	Thread      string `json:"thread,omitempty"`
+	Context     string `json:"context,omitempty"`
+	RootContext string `json:"root_context,omitempty"`
+	Open        string `json:"open,omitempty"`
+}
+
+type compactMessageResult struct {
+	Ref         int            `json:"ref"`
+	ChannelID   string         `json:"channel_id,omitempty"`
+	ChannelName string         `json:"channel_name,omitempty"`
+	TS          string         `json:"ts,omitempty"`
+	ThreadTS    string         `json:"thread_ts,omitempty"`
+	RootTS      string         `json:"root_ts,omitempty"`
+	Permalink   string         `json:"permalink,omitempty"`
+	User        string         `json:"user,omitempty"`
+	Username    string         `json:"username,omitempty"`
+	Excerpt     string         `json:"excerpt,omitempty"`
+	Commands    resultCommands `json:"commands"`
+}
+
+type compactThreadResult struct {
+	Ref          int                    `json:"ref"`
+	ChannelID    string                 `json:"channel_id,omitempty"`
+	ChannelName  string                 `json:"channel_name,omitempty"`
+	RootTS       string                 `json:"root_ts,omitempty"`
+	Permalink    string                 `json:"permalink,omitempty"`
+	MessageCount int                    `json:"message_count"`
+	First        compactMessageResult   `json:"first,omitempty"`
+	Commands     resultCommands         `json:"commands"`
+	Messages     []compactMessageResult `json:"messages,omitempty"`
+}
+
 func (cmd *SearchCmd) Run(globals *Globals) error {
 	query := strings.Join(cmd.Query, " ")
 	if strings.TrimSpace(query) == "" {
@@ -202,7 +238,7 @@ func (cmd *SearchCmd) Run(globals *Globals) error {
 						fmt.Sprintf("Notice: %s", notice),
 					}
 					text := renderSearchMessageOutput(cmd.Evidence, header, displayMessages, query, searchHighlightTerms(query, userExpansions, channelExpansions), renderOptions)
-					return writeEnvelope(globals, Envelope{
+					return writeCompactEnvelope(globals, cmd.Compact, Envelope{
 						OK:          true,
 						Text:        text,
 						Source:      "cache",
@@ -227,7 +263,7 @@ func (cmd *SearchCmd) Run(globals *Globals) error {
 						fmt.Sprintf("Notice: %s", notice),
 					}
 					text := renderSearchMessageOutput(cmd.Evidence, header, displayMessages, query, searchHighlightTerms(query, userExpansions, channelExpansions), renderOptions)
-					return writeEnvelope(globals, Envelope{
+					return writeCompactEnvelope(globals, cmd.Compact, Envelope{
 						OK:          true,
 						Text:        text,
 						Source:      "slack+cache",
@@ -244,7 +280,7 @@ func (cmd *SearchCmd) Run(globals *Globals) error {
 		}
 		header := liveSearchHeader(query, slackQuery, fmt.Sprintf("Showing: %d of %d", len(result.Messages), result.Total))
 		text := renderSearchMessageOutput(cmd.Evidence, header, messagesForHuman(ctx, globals, cacheDB, client, result.Messages, userExpansions), query, searchHighlightTerms(query, userExpansions, channelExpansions), renderOptions)
-		return writeEnvelope(globals, Envelope{
+		return writeCompactEnvelope(globals, cmd.Compact, Envelope{
 			OK:      true,
 			Text:    text,
 			Source:  "slack",
@@ -294,7 +330,7 @@ func (cmd *SearchCmd) Run(globals *Globals) error {
 		displayResults := messagesForHuman(context.TODO(), globals, nil, nil, results, nil)
 		threads := groupMessagesByThread(displayResults)
 		text := renderThreadListWithOptions("Search", header, threads, renderOptions)
-		return writeEnvelope(globals, Envelope{
+		return writeCompactEnvelope(globals, cmd.Compact, Envelope{
 			OK:          true,
 			Text:        text,
 			Source:      source,
@@ -305,7 +341,7 @@ func (cmd *SearchCmd) Run(globals *Globals) error {
 		})
 	}
 	text := renderSearchMessageOutput(cmd.Evidence, header, messagesForHuman(context.TODO(), globals, nil, nil, results, nil), query, searchHighlightTerms(query, nil, nil), renderOptions)
-	return writeEnvelope(globals, Envelope{
+	return writeCompactEnvelope(globals, cmd.Compact, Envelope{
 		OK:          true,
 		Text:        text,
 		Source:      source,
@@ -341,7 +377,7 @@ func (cmd *FindCmd) Run(globals *Globals) error {
 				fmt.Sprintf("Topic: %s", topic),
 				fmt.Sprintf("Ranked cached threads: %d", len(threads)),
 			}, threads, renderOptions)
-			return writeEnvelope(globals, Envelope{
+			return writeCompactEnvelope(globals, cmd.Compact, Envelope{
 				OK:      true,
 				Text:    text,
 				Source:  "cache",
@@ -391,7 +427,7 @@ func (cmd *FindCmd) Run(globals *Globals) error {
 		header = append(header, fmt.Sprintf("Notice: %s", notice))
 	}
 	text := renderThreadListWithOptions("Find", header, threads, renderOptions)
-	return writeEnvelope(globals, Envelope{
+	return writeCompactEnvelope(globals, cmd.Compact, Envelope{
 		OK:          true,
 		Text:        text,
 		Source:      source,
@@ -551,6 +587,11 @@ func (cmd *ContextCmd) Run(globals *Globals) error {
 		return err
 	}
 	renderOptions := messageRenderOptions{Verbose: cmd.Verbose, IncludeRichContent: cmd.IncludeRichContent}
+	if !globals.NoCache {
+		if root := resolveCachedThreadRootTS(channelID, cmd.TS); root != "" && root != cmd.TS {
+			return writeThreadReplyContext(globals, ctx, client, channelID, cmd.TS, root, cmd.IncludeRichContent, renderOptions)
+		}
+	}
 	beforeMessages := []api.MessageResult{}
 	if cmd.Before > 0 {
 		beforeMessages, err = client.ConversationHistory(ctx, channelID, cmd.Before, cmd.TS, "", cmd.IncludeRichContent)
@@ -652,6 +693,41 @@ func (cmd *ContextCmd) Run(globals *Globals) error {
 		Source:  "slack",
 		Results: messages,
 		Cache:   cacheStatus,
+	})
+}
+
+func writeThreadReplyContext(globals *Globals, ctx context.Context, client *api.Client, channelID string, targetTS string, rootTS string, includeRichContent bool, renderOptions messageRenderOptions) error {
+	thread, err := client.Thread(ctx, channelID, rootTS, includeRichContent)
+	if err != nil {
+		if isRateLimitError(err) && !globals.NoCache {
+			if cached, found := cachedThread(channelID, rootTS); found {
+				recordRateLimit(globals, err)
+				notice := rateLimitCacheNotice(err, "thread context")
+				return writeCachedMessages(globals, ctx, client, "Context", []string{
+					fmt.Sprintf("Channel: %s", channelID),
+					fmt.Sprintf("TS: %s", targetTS),
+					fmt.Sprintf("Root: %s", rootTS),
+				}, cached.Messages, notice, renderOptions, cached)
+			}
+		}
+		return slackAPIError(err)
+	}
+	cacheStatus := cacheThread(globals, thread)
+	notice := "target timestamp is a thread reply; showing the containing thread"
+	text := renderMessageListWithOptions("Context", []string{
+		fmt.Sprintf("Channel: %s", channelID),
+		fmt.Sprintf("TS: %s", targetTS),
+		fmt.Sprintf("Root: %s", rootTS),
+		fmt.Sprintf("Notice: %s", notice),
+	}, messagesForHuman(ctx, globals, nil, client, thread.Messages, nil), renderOptions)
+	return writeEnvelope(globals, Envelope{
+		OK:          true,
+		Text:        text,
+		Source:      "slack",
+		CacheNotice: notice,
+		Results:     thread.Messages,
+		Thread:      thread,
+		Cache:       cacheStatus,
 	})
 }
 
@@ -798,7 +874,7 @@ func (cmd *UserCmd) Run(globals *Globals) error {
 		target = cmd.Email
 	}
 	if strings.TrimSpace(target) == "" {
-		return missingUsage("missing user", "slacky user <email|@handle|user-id>", "slacky user person@example.com", "slacky user @alex", "slacky user U123")
+		return missingUsage("missing user", "slacky user <email|@handle|user-id>", "slacky user person@example.com", "slacky user @sampleuser", "slacky user U123")
 	}
 	return resolveUser(globals, target, cmd.Refresh)
 }
@@ -823,7 +899,7 @@ func (cmd *ResolveSummaryCmd) Run(globals *Globals) error {
 func (cmd *ResolveUserCmd) Run(globals *Globals) error {
 	target := strings.Join(cmd.Target, " ")
 	if strings.TrimSpace(target) == "" {
-		return missingUsage("missing user", "slacky user <email|@handle|user-id>", "slacky user person@example.com", "slacky user @alex", "slacky user U123")
+		return missingUsage("missing user", "slacky user <email|@handle|user-id>", "slacky user person@example.com", "slacky user @sampleuser", "slacky user U123")
 	}
 	return resolveUser(globals, target, cmd.Refresh)
 }
@@ -881,11 +957,22 @@ func liveUserByTarget(ctx context.Context, globals *Globals, client *api.Client,
 	if looksUserID(cleanTarget) {
 		return client.UserInfo(ctx, cleanTarget)
 	}
-	user, ok := resolveSearchUserHandle(ctx, globals, nil, client, cleanTarget)
+	user, suggestions, ok := resolveSearchUserHandleWithSuggestions(ctx, globals, nil, client, cleanTarget)
 	if !ok {
-		return api.UserResult{}, api.SlackError{Method: "users.list", Code: "user_not_found"}
+		return api.UserResult{}, userNotFoundError(target, suggestions)
 	}
 	return user, nil
+}
+
+func userNotFoundError(target string, suggestions []api.UserResult) *AppError {
+	err := appError("user_not_found", fmt.Sprintf("could not resolve user %q", target))
+	err.Examples = []string{"slacky user person@example.com", "slacky user @someone", "slacky search \"@someone\" --json"}
+	err.Suggestions = userSuggestionLabels(suggestions)
+	err.SuggestedCommands = userSuggestionCommands(suggestions)
+	if len(err.SuggestedCommands) == 0 {
+		err.SuggestedCommands = []string{"slacky user person@example.com --json", "slacky search \"@someone\" --json"}
+	}
+	return err
 }
 
 func isEmailTarget(target string) bool {
@@ -1004,6 +1091,20 @@ func cachedContextMessages(channelID string, ts string, before int, after int) (
 		return nil, false
 	}
 	return messages, true
+}
+
+func writeCompactEnvelope(globals *Globals, compact bool, envelope Envelope) error {
+	if compact && globals.JSON {
+		envelope.Text = ""
+		envelope.Cache = nil
+		if messages, ok := envelope.Results.([]api.MessageResult); ok {
+			envelope.Results = compactMessageResults(messages)
+		}
+		if threads, ok := envelope.Threads.([]api.ThreadResult); ok {
+			envelope.Threads = compactThreadResults(threads)
+		}
+	}
+	return writeEnvelope(globals, envelope)
 }
 
 func writeCachedMessages(globals *Globals, ctx context.Context, client *api.Client, title string, header []string, messages []api.MessageResult, notice string, options messageRenderOptions, thread api.ThreadResult) error {
@@ -1503,34 +1604,44 @@ func appendUniqueChannelExpansion(expansions []searchChannelExpansion, target st
 }
 
 func resolveSearchUserHandle(ctx context.Context, globals *Globals, cacheDB *store.DB, client *api.Client, handle string) (api.UserResult, bool) {
+	user, _, ok := resolveSearchUserHandleWithSuggestions(ctx, globals, cacheDB, client, handle)
+	return user, ok
+}
+
+func resolveSearchUserHandleWithSuggestions(ctx context.Context, globals *Globals, cacheDB *store.DB, client *api.Client, handle string) (api.UserResult, []api.UserResult, bool) {
 	handle = strings.TrimPrefix(strings.TrimSpace(handle), "@")
 	if handle == "" {
-		return api.UserResult{}, false
+		return api.UserResult{}, nil, false
 	}
 	if looksUserID(handle) {
-		return api.UserResult{ID: handle, Name: handle}, true
+		return api.UserResult{ID: handle, Name: handle}, nil, true
 	}
 	if cacheDB != nil {
 		if user, found, err := cacheDB.UserByName(handle); err == nil && found {
-			return user, true
+			return user, nil, true
 		}
 	}
 	users, err := client.UsersList(ctx, 1000)
 	if err != nil {
-		return api.UserResult{}, false
+		return api.UserResult{}, nil, false
 	}
 	for _, user := range users {
 		if cacheDB != nil && !globals.NoCache {
 			_ = cacheDB.UpsertUser(user)
 		}
 	}
-	return matchUserHandle(users, handle)
+	return matchUserHandleWithSuggestions(users, handle)
 }
 
 func matchUserHandle(users []api.UserResult, handle string) (api.UserResult, bool) {
+	user, _, ok := matchUserHandleWithSuggestions(users, handle)
+	return user, ok
+}
+
+func matchUserHandleWithSuggestions(users []api.UserResult, handle string) (api.UserResult, []api.UserResult, bool) {
 	for _, user := range users {
 		if strings.EqualFold(user.Name, handle) {
-			return user, true
+			return user, nil, true
 		}
 	}
 	matches := []api.UserResult{}
@@ -1539,37 +1650,136 @@ func matchUserHandle(users []api.UserResult, handle string) (api.UserResult, boo
 			matches = append(matches, user)
 		}
 	}
-	if len(matches) != 1 {
-		return fuzzyUserHandle(users, handle)
+	if len(matches) == 1 {
+		return matches[0], nil, true
 	}
-	return matches[0], true
+	ranked := rankedUserCandidates(users, handle)
+	if len(ranked) == 0 {
+		return api.UserResult{}, nil, false
+	}
+	best := []userCandidate{}
+	for _, candidate := range ranked {
+		if candidate.score != ranked[0].score {
+			break
+		}
+		best = append(best, candidate)
+	}
+	suggestions := userCandidates(ranked, 5)
+	if len(best) != 1 {
+		return api.UserResult{}, suggestions, false
+	}
+	return best[0].user, suggestions, true
 }
 
-func fuzzyUserHandle(users []api.UserResult, handle string) (api.UserResult, bool) {
-	type candidate struct {
-		user  api.UserResult
-		score int
-	}
-	best := []candidate{}
+type userCandidate struct {
+	user  api.UserResult
+	score int
+}
+
+func rankedUserCandidates(users []api.UserResult, handle string) []userCandidate {
+	input := normalizeLookupValue(handle)
+	bestByID := map[string]userCandidate{}
 	for _, user := range users {
 		for _, value := range []string{user.Name, user.DisplayName, user.RealName} {
-			score, ok := fuzzyMatchScore(handle, value)
+			score, ok := userMatchScore(input, value)
 			if !ok {
 				continue
 			}
-			if len(best) == 0 || score < best[0].score {
-				best = []candidate{{user: user, score: score}}
-				continue
-			}
-			if score == best[0].score && user.ID != best[0].user.ID {
-				best = append(best, candidate{user: user, score: score})
+			id := firstNonEmpty(user.ID, user.Name, user.DisplayName, user.RealName)
+			if current, found := bestByID[id]; !found || score < current.score {
+				bestByID[id] = userCandidate{user: user, score: score}
 			}
 		}
 	}
-	if len(best) != 1 {
-		return api.UserResult{}, false
+	ranked := make([]userCandidate, 0, len(bestByID))
+	for _, candidate := range bestByID {
+		ranked = append(ranked, candidate)
 	}
-	return best[0].user, true
+	sort.SliceStable(ranked, func(left int, right int) bool {
+		if ranked[left].score != ranked[right].score {
+			return ranked[left].score < ranked[right].score
+		}
+		return userSearchLabel(ranked[left].user) < userSearchLabel(ranked[right].user)
+	})
+	return ranked
+}
+
+func userMatchScore(input string, candidate string) (int, bool) {
+	candidate = normalizeLookupValue(candidate)
+	if input == "" || candidate == "" {
+		return 0, false
+	}
+	if input == candidate {
+		return 0, true
+	}
+	if strings.HasPrefix(candidate, input) {
+		return 10 + len(candidate) - len(input), true
+	}
+	if strings.Contains(candidate, input) {
+		return 20 + len(candidate) - len(input), true
+	}
+	score, ok := fuzzyMatchScore(input, candidate)
+	if !ok {
+		return 0, false
+	}
+	return 40 + score, true
+}
+
+func userCandidates(candidates []userCandidate, limit int) []api.UserResult {
+	if limit <= 0 || len(candidates) == 0 {
+		return nil
+	}
+	users := make([]api.UserResult, 0, min(limit, len(candidates)))
+	for _, candidate := range candidates {
+		users = append(users, candidate.user)
+		if len(users) >= limit {
+			return users
+		}
+	}
+	return users
+}
+
+func userSuggestionLabels(users []api.UserResult) []string {
+	labels := make([]string, 0, len(users))
+	for _, user := range users {
+		parts := []string{}
+		if user.Name != "" {
+			parts = append(parts, "@"+strings.TrimPrefix(user.Name, "@"))
+		}
+		if display := firstNonEmpty(user.DisplayName, user.RealName); display != "" {
+			parts = append(parts, display)
+		}
+		if user.ID != "" {
+			parts = append(parts, user.ID)
+		}
+		if len(parts) > 0 {
+			labels = append(labels, strings.Join(parts, " - "))
+		}
+	}
+	return labels
+}
+
+func userSuggestionCommands(users []api.UserResult) []string {
+	commands := make([]string, 0, len(users))
+	seen := map[string]bool{}
+	for _, user := range users {
+		target := ""
+		if user.Name != "" {
+			target = "@" + strings.TrimPrefix(user.Name, "@")
+		} else if user.ID != "" {
+			target = user.ID
+		}
+		if target == "" {
+			continue
+		}
+		command := "slacky user " + shellQuote(target) + " --json"
+		if seen[command] {
+			continue
+		}
+		seen[command] = true
+		commands = append(commands, command)
+	}
+	return commands
 }
 
 func userSearchLabel(user api.UserResult) string {
@@ -2324,6 +2534,72 @@ func messageRootTS(message api.MessageResult) string {
 	return firstNonEmpty(message.RootTS, message.ThreadTS, message.TS)
 }
 
+func compactMessageResults(messages []api.MessageResult) []compactMessageResult {
+	results := make([]compactMessageResult, 0, len(messages))
+	for index := range messages {
+		results = append(results, compactMessageResultFor(index+1, messages[index]))
+	}
+	return results
+}
+
+func compactMessageResultFor(ref int, message api.MessageResult) compactMessageResult {
+	return compactMessageResult{
+		Ref:         ref,
+		ChannelID:   message.ChannelID,
+		ChannelName: message.ChannelName,
+		TS:          message.TS,
+		ThreadTS:    message.ThreadTS,
+		RootTS:      messageRootTS(message),
+		Permalink:   message.Permalink,
+		User:        message.User,
+		Username:    message.Username,
+		Excerpt:     excerptMessageText(message),
+		Commands:    messageCommands(message),
+	}
+}
+
+func compactThreadResults(threads []api.ThreadResult) []compactThreadResult {
+	results := make([]compactThreadResult, 0, len(threads))
+	for index := range threads {
+		thread := threads[index]
+		result := compactThreadResult{
+			Ref:          index + 1,
+			ChannelID:    thread.ChannelID,
+			ChannelName:  thread.ChannelName,
+			RootTS:       thread.RootTS,
+			Permalink:    thread.Permalink,
+			MessageCount: len(thread.Messages),
+			Commands: resultCommands{
+				Thread: threadOpenCommand(thread),
+				Open:   openCommand(thread.Permalink),
+			},
+		}
+		if len(thread.Messages) > 0 {
+			result.First = compactMessageResultFor(1, thread.Messages[0])
+			result.Messages = compactMessageResults(thread.Messages)
+		}
+		results = append(results, result)
+	}
+	return results
+}
+
+func messageCommands(message api.MessageResult) resultCommands {
+	commands := resultCommands{
+		Message: messageCommand(message),
+		Thread:  threadCommand(message),
+		Context: contextCommand(message),
+		Open:    openCommand(message.Permalink),
+	}
+	if root := messageRootTS(message); root != "" && root != message.TS {
+		commands.RootContext = fmt.Sprintf("slacky context --channel %s --ts %s", blank(message.ChannelID), blank(root))
+	}
+	return commands
+}
+
+func messageCommand(message api.MessageResult) string {
+	return fmt.Sprintf("slacky message --channel %s --ts %s", blank(message.ChannelID), blank(message.TS))
+}
+
 func threadCommand(message api.MessageResult) string {
 	return fmt.Sprintf("slacky thread --channel %s --ts %s", blank(message.ChannelID), blank(messageRootTS(message)))
 }
@@ -2334,6 +2610,13 @@ func contextCommand(message api.MessageResult) string {
 
 func threadOpenCommand(thread api.ThreadResult) string {
 	return fmt.Sprintf("slacky thread --channel %s --ts %s", blank(thread.ChannelID), blank(thread.RootTS))
+}
+
+func openCommand(permalink string) string {
+	if strings.TrimSpace(permalink) == "" {
+		return ""
+	}
+	return "slacky open " + shellQuote(permalink)
 }
 
 func slackTSLabel(ts string) string {
