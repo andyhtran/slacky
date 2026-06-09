@@ -1,0 +1,58 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  enable:
+    - asciicheck
+    - asasalint
+    - copyloopvar
+    - dogsled
+    - durationcheck
+    - errname
+    - errcheck
+    - errchkjson
+    - exhaustive
+    - forcetypeassert
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - errorlint
+    - bodyclose
+    - bidichk
+    - gocheckcompilerdirectives
+    - gocritic
+    - gocyclo
+    - misspell
+    - makezero
+    - nilerr
+    - nilnil
+    - usestdlibvars
+    - unconvert
+    - prealloc
+    - predeclared
+    - nolintlint
+    - wastedassign
+    - unparam
+  settings:
+    gocyclo:
+      min-complexity: 30
+    gocritic:
+      enabled-checks:
+        - appendAssign
+        - badCond
+        - boolExprSimplify
+        - emptyStringTest
+        - evalOrder
+        - ifElseChain
+        - octalLiteral
+        - rangeValCopy
+        - unslice
+        - whyNoLint
+
+formatters:
+  enable:
+    - gofumpt

@@ -1,0 +1,6 @@
+dist/
+coverage.out
+.DS_Store
+.env
+.env.*
+!.env.example
