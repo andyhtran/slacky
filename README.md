@@ -45,6 +45,21 @@ slacky auth status
 
 `auth import` prompts for the token by default. For scripts, use `--token-stdin`, `--token-file <path>`, or `--token-env <name>` instead of putting tokens in command arguments.
 
+To keep multiple credentials, store named profiles and switch between them:
+
+```bash
+slacky auth import --name work-token
+slacky auth list
+slacky auth switch work-token
+slacky auth status
+```
+
+Named profiles use separate SQLite caches by Slack workspace and user. Check the exact active cache with `slacky auth status` or `slacky paths`.
+
+If `slacky auth status` shows `expires_at`, Slacky refreshes rotating OAuth credentials before live Slack API commands when possible. For explicit diagnosis, run `slacky auth refresh [--profile <name>]`.
+
+When Slack app installation is blocked but you can already access Slack in a browser, `auth import-session --wizard` can walk you through importing an advanced browser session using an `xoxc` token plus the Slack cookie named `d`. Use OAuth or user-token import when available.
+
 ## Search Slack
 
 Search live Slack results:
@@ -53,6 +68,7 @@ Search live Slack results:
 slacky search "from:@someone has:link"
 slacky search "in:#general release"
 slacky find "customer escalation"
+slacky find "paddle recommendations"
 ```
 
 Search the local cache when offline or rate-limited:
@@ -97,13 +113,13 @@ use slacky to find the launch thread and summarize the decision
 ```
 
 Agents should prefer `--json` for stable output and check `source` plus `cache_notice` before treating cached data as fresh.
-For search-heavy workflows, use `--json --compact` to get IDs, timestamps, excerpts, permalinks, and follow-up commands without rendered human text.
+For search-heavy or synthesis workflows, use `--json --compact` to get IDs, timestamps, dates, excerpts, permalinks, and follow-up commands without rendered human text.
 
 ## Safety and storage
 
-Slack API calls are read-only. `slacky` uses user-token scopes and does not request permissions to send messages, mutate channels, change users, manage files, create webhooks, or change workspace settings.
+Slack API calls are read-only. The default OAuth path uses user-token scopes and does not request permissions to send messages, mutate channels, change users, manage files, create webhooks, or change workspace settings. Browser-session import is an advanced fallback that uses the user's existing Slack web session, so treat those credentials like browser cookies.
 
-`slacky` stores its own files under `~/.slacky/`: auth metadata, the local SQLite cache, small state files, logs, and CLI-owned skill storage. Set `SLACKY_HOME` to override this for isolated runs. Auth files are written with `0600` permissions, and secrets are redacted from status, doctor, schema, and agent-context output.
+`slacky` stores its own files under `~/.slacky/`: auth metadata, profile-scoped SQLite caches, small state files, logs, and CLI-owned skill storage. Legacy unnamed auth uses `~/.slacky/cache/index.db`; named auth uses `~/.slacky/cache/profiles/<profile>--<team_id>--<user_id>/index.db`. Set `SLACKY_HOME` to override this for isolated runs. Auth files are written with `0600` permissions, and secrets are redacted from status, doctor, schema, and agent-context output.
 
 Run `slacky --help`, `slacky schema --json`, or `slacky skills get core` for the full command surface.
 

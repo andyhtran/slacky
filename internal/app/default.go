@@ -19,7 +19,7 @@ func (cmd *DefaultCmd) Run(globals *Globals) error {
 	if err != nil {
 		return err
 	}
-	authStatus := config.InspectAuth(pathSet.AuthFile.Path)
+	authStatus := inspectAuthStatus(pathSet)
 	cacheStatus := store.Inspect(pathSet.CacheDB.Path)
 	authUser := authenticatedUserLabel(authStatus, pathSet.CacheDB.Path)
 

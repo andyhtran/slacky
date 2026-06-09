@@ -13,9 +13,10 @@ import (
 	"time"
 )
 
-const (
+var (
 	UserAuthorizeURL = "https://slack.com/oauth/v2_user/authorize"
 	UserAccessURL    = "https://slack.com/api/oauth.v2.user.access"
+	OAuthAccessURL   = "https://slack.com/api/oauth.v2.access"
 )
 
 type PKCEPair struct {
@@ -29,6 +30,12 @@ type OAuthExchangeRequest struct {
 	Code         string
 	CodeVerifier string
 	RedirectURI  string
+}
+
+type OAuthRefreshRequest struct {
+	ClientID     string
+	ClientSecret string
+	RefreshToken string
 }
 
 type OAuthToken struct {
@@ -88,7 +95,22 @@ func ExchangeUserToken(ctx context.Context, client *http.Client, request OAuthEx
 	form.Set("redirect_uri", request.RedirectURI)
 	form.Set("grant_type", "authorization_code")
 
-	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, UserAccessURL, strings.NewReader(form.Encode()))
+	return postOAuthForm(ctx, client, UserAccessURL, form, userAgent)
+}
+
+func RefreshUserToken(ctx context.Context, client *http.Client, request OAuthRefreshRequest, userAgent string) (OAuthToken, error) {
+	form := url.Values{}
+	form.Set("client_id", request.ClientID)
+	if request.ClientSecret != "" {
+		form.Set("client_secret", request.ClientSecret)
+	}
+	form.Set("refresh_token", request.RefreshToken)
+	form.Set("grant_type", "refresh_token")
+	return postOAuthForm(ctx, client, OAuthAccessURL, form, userAgent)
+}
+
+func postOAuthForm(ctx context.Context, client *http.Client, endpoint string, form url.Values, userAgent string) (OAuthToken, error) {
+	httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return OAuthToken{}, err
 	}

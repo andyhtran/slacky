@@ -11,7 +11,6 @@ import (
 	"golang.org/x/term"
 
 	"github.com/andyhtran/slacky/internal/api"
-	"github.com/andyhtran/slacky/internal/config"
 	"github.com/andyhtran/slacky/internal/output"
 	"github.com/andyhtran/slacky/internal/paths"
 )
@@ -29,11 +28,7 @@ func (cmd *AuthImportCmd) Run(globals *Globals) error {
 		return err
 	}
 
-	existing, err := config.LoadAuth(pathSet.AuthFile.Path)
-	if err != nil && !errors.Is(err, config.ErrMissingAuth) {
-		return err
-	}
-	auth := importedTokenAuth(existing, token)
+	auth := importedUserTokenAuth(token)
 
 	validation := "skipped"
 	if !cmd.NoValidate {
@@ -52,26 +47,21 @@ func (cmd *AuthImportCmd) Run(globals *Globals) error {
 		}
 	}
 
-	if err := config.WriteAuth(pathSet.AuthFile.Path, auth); err != nil {
+	profileName := strings.TrimSpace(cmd.Name)
+	auth.ProfileName = profileName
+	storedPath, err := writeSelectedAuth(pathSet, profileName, auth)
+	if err != nil {
 		return err
 	}
 
-	summary := map[string]any{
-		"path":           pathSet.AuthFile.Path,
-		"token_source":   source,
-		"validation":     validation,
-		"team_id":        auth.TeamID,
-		"team_name":      auth.TeamName,
-		"user_id":        auth.UserID,
-		"user_name":      auth.UserName,
-		"token_type":     auth.TokenType,
-		"scopes":         auth.Scopes,
-		"has_user_token": auth.UserToken != "",
-	}
+	summary := authProfileSummary(profileName, storedPath, auth)
+	summary["token_source"] = source
+	summary["validation"] = validation
 	text := strings.Join([]string{
 		"Auth token import complete",
 		"",
-		fmt.Sprintf("Stored: %s", pathSet.AuthFile.Path),
+		fmt.Sprintf("Stored: %s", storedPath),
+		fmt.Sprintf("Profile: %s", blank(auth.ProfileName)),
 		fmt.Sprintf("Validation: %s", validation),
 		fmt.Sprintf("Team: %s", blank(auth.TeamName)),
 		fmt.Sprintf("User: %s", authDisplayLabel(auth.UserID, auth.UserName)),
@@ -196,18 +186,10 @@ func validateImportedTokenShape(token string) error {
 	if strings.HasPrefix(lower, "xapp-") {
 		return appError("invalid_token_type", "provided token looks like a Slack app-level token; slacky requires a user token")
 	}
-	return nil
-}
-
-func importedTokenAuth(existing config.Auth, token string) config.Auth {
-	return config.Auth{
-		ClientID:     existing.ClientID,
-		ClientSecret: existing.ClientSecret,
-		RedirectURI:  existing.RedirectURI,
-		UserToken:    token,
-		Scopes:       []string{},
-		TokenType:    importedTokenType(token),
+	if strings.HasPrefix(lower, "xoxc-") {
+		return appError("invalid_token_type", "provided token looks like a Slack browser-session token; use slacky auth import-session --wizard")
 	}
+	return nil
 }
 
 func importedTokenType(token string) string {

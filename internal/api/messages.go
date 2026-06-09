@@ -31,6 +31,9 @@ type MessageResult struct {
 	Permalink   string          `json:"permalink,omitempty"`
 	User        string          `json:"user,omitempty"`
 	Username    string          `json:"username,omitempty"`
+	DisplayName string          `json:"display_name,omitempty"`
+	Datetime    string          `json:"datetime,omitempty"`
+	Date        string          `json:"date,omitempty"`
 	Excerpt     string          `json:"excerpt,omitempty"`
 	TextFull    string          `json:"text_full,omitempty"`
 	Blocks      json.RawMessage `json:"blocks,omitempty"`
@@ -53,6 +56,8 @@ type ThreadResult struct {
 	ChannelID   string          `json:"channel_id,omitempty"`
 	ChannelName string          `json:"channel_name,omitempty"`
 	RootTS      string          `json:"root_ts,omitempty"`
+	Datetime    string          `json:"datetime,omitempty"`
+	Date        string          `json:"date,omitempty"`
 	Permalink   string          `json:"permalink,omitempty"`
 	Messages    []MessageResult `json:"messages"`
 }

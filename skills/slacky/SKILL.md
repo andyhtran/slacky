@@ -10,15 +10,26 @@ Use `slacky` to find Slack messages, open the right thread, and pull concise con
 ## Core Loop
 
 ```text
-search -> narrow -> thread/context -> reuse
+find/search -> narrow -> thread/context -> reuse
 ```
 
 Start with the user's topic directly:
 
 ```sh
-slacky search "topic words" --json --compact
 slacky find "incident review" --json --compact
+slacky search "topic words" --json --compact
 ```
+
+For requests like "what do people recommend/think/say about X", start with `find` before broad search:
+
+```sh
+slacky find "topic recommendations" --json --compact
+slacky search "topic recommend" --json --compact --group-by-thread
+slacky search "topic recs" --json --compact --group-by-thread
+slacky thread --channel <channel-id> --ts <root-ts> --json --compact
+```
+
+When synthesizing recommendation or consensus results, separate actual recommendations, deal/marketplace availability, questions/requests for advice, and noise.
 
 Use live Slack search syntax when useful:
 
@@ -53,9 +64,9 @@ Prefer commands returned in JSON result `commands` fields. For threaded hits:
 Manual forms:
 
 ```sh
-slacky thread --channel C123456 --ts 1717440000.000000 --json
-slacky context --channel C123456 --ts 1717440000.000100 --json
-slacky open https://workspace.slack.com/archives/C123456/p1717440000000100 --mode thread --json
+slacky thread --channel C123456 --ts 1717440000.000000 --json --compact
+slacky context --channel C123456 --ts 1717440000.000100 --json --compact
+slacky open https://workspace.slack.com/archives/C123456/p1717440000000100 --mode thread --json --compact
 ```
 
 If `context` fails on a threaded hit, run the `thread` command using the result's `root_ts` or `thread_ts`.
@@ -74,14 +85,16 @@ If a short name is ambiguous, use the suggested commands from the JSON error.
 
 ## Output
 
-For search and find, prefer compact JSON:
+For search, find, and follow-up reading, prefer compact JSON:
 
 ```sh
 slacky search "topic words" --json --compact
 slacky find "topic words" --json --compact
+slacky thread --channel C123456 --ts 1717440000.000000 --json --compact
+slacky context --channel C123456 --ts 1717440000.000100 --json --compact
 ```
 
-Compact results omit rendered human text and include the IDs, timestamps, permalinks, excerpts, and follow-up commands agents need.
+Compact results omit rendered human text and include the IDs, timestamps, datetime/date, identity fields, permalinks, excerpts, and follow-up commands agents need.
 
 Use `--evidence` only when human-readable per-result text is needed:
 
@@ -97,7 +110,16 @@ If auth, cache, or Slack API errors block the task, use the command's suggested 
 
 ```sh
 slacky auth status --json
+slacky auth refresh --json
 slacky cache status --json
 slacky doctor --json
+slacky skills get auth
 slacky skills get setup
+```
+
+For a named auth profile's isolated cache, use:
+
+```sh
+slacky cache status --profile <name>
+slacky cache clear --profile <name> --dry-run
 ```

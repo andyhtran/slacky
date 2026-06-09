@@ -70,6 +70,38 @@ func TestLimitAliasesParse(t *testing.T) {
 	}
 }
 
+func TestFollowupCompactFlagsParse(t *testing.T) {
+	tests := []struct {
+		args    []string
+		compact func(CLI) bool
+	}{
+		{args: []string{"message", "--channel", "C123", "--ts", "1.000000", "--compact"}, compact: func(cli CLI) bool { return cli.Message.Compact }},
+		{args: []string{"thread", "--channel", "C123", "--ts", "1.000000", "--compact"}, compact: func(cli CLI) bool { return cli.Thread.Compact }},
+		{args: []string{"context", "--channel", "C123", "--ts", "1.000000", "--compact"}, compact: func(cli CLI) bool { return cli.Context.Compact }},
+		{args: []string{"open", "https://example.slack.com/archives/C123/p1000000", "--compact"}, compact: func(cli CLI) bool { return cli.Open.Compact }},
+	}
+	for _, test := range tests {
+		var cli CLI
+		parser, err := kong.New(
+			&cli,
+			kong.Name("slacky"),
+			kong.Description(appDescription),
+			kong.Vars{"version": "slacky dev"},
+			kong.Help(helpPrinter),
+			kong.ConfigureHelp(kong.HelpOptions{Compact: true}),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := parser.Parse(test.args); err != nil {
+			t.Fatalf("parse %v: %v", test.args, err)
+		}
+		if !test.compact(cli) {
+			t.Fatalf("parse %v did not set compact flag", test.args)
+		}
+	}
+}
+
 func TestRootHelpTextUsesCanonicalUserCommand(t *testing.T) {
 	text := rootHelpText("/tmp/slacky/cache/index.db")
 

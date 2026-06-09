@@ -104,6 +104,27 @@ func TestAuthTestIncludesMetadata(t *testing.T) {
 	}
 }
 
+func TestCallAddsSessionCookieWhenConfigured(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		cookie, err := request.Cookie("d")
+		if err != nil {
+			t.Fatalf("missing d cookie: %v", err)
+		}
+		if cookie.Value != "xoxd-test" {
+			t.Fatalf("cookie value = %q, want xoxd-test", cookie.Value)
+		}
+		_ = json.NewEncoder(writer).Encode(map[string]any{"ok": true})
+	}))
+	defer server.Close()
+
+	client := testClient(server)
+	client.SessionCookieD = "xoxd-test"
+	var out map[string]any
+	if err := client.Call(context.Background(), "auth.test", nil, &out); err != nil {
+		t.Fatalf("auth.test: %v", err)
+	}
+}
+
 func TestClientActiveCooldownSkipsRequest(t *testing.T) {
 	called := false
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

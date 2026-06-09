@@ -15,6 +15,7 @@ const (
 	Name       = "slacky"
 	CoreGuide  = "core"
 	SetupGuide = "setup"
+	AuthGuide  = "auth"
 	MarkerFile = ".slacky-managed-skill"
 )
 
@@ -34,7 +35,12 @@ func ListGuides() []RuntimeGuide {
 		},
 		{
 			Name:        SetupGuide,
-			Description: "First-run install, Slack app setup, token import, auth verification, and handoff guidance.",
+			Description: "First-run install, Slack app setup, token/session import, auth verification, and handoff guidance.",
+			Visible:     true,
+		},
+		{
+			Name:        AuthGuide,
+			Description: "Auth profile switching, auth method choice, browser-session import, cache isolation, and active account verification.",
 			Visible:     true,
 		},
 	}
@@ -78,19 +84,21 @@ description: Use when searching Slack and getting read-only context with the sla
 
 This managed discovery stub is installed by slacky %s.
 
-Run version-matched runtime guidance from the installed binary:
+For any Slack search, thread, message, channel, user, or context task, load the runtime guide from the installed binary:
 
 %s
 
-Use setup guidance for first-run installs, Slack app creation, token import, or auth troubleshooting:
+For synthesis or consensus tasks, start with slacky find.
+
+To see other bundled runtime guides:
 
 %s
 
-Safety:
-- Slacky is read-only against Slack.
-- Start search tasks directly with the runtime guide; use auth status or doctor only when a command reports an issue.
-- Use slacky skills get <name> --json only when structured skill output is needed; the default is Markdown.
-`, version, "```sh\nslacky skills get core\n```", "```sh\nslacky skills get setup\n```")
+Use setup/auth guides only when the user asks to install, authenticate, switch accounts, or fix auth:
+
+%s
+%s
+`, version, "```sh\nslacky skills get core\n```", "```sh\nslacky skills list\n```", "```sh\nslacky skills get setup\n```", "```sh\nslacky skills get auth\n```")
 }
 
 func StubHash(version string) string {
@@ -140,8 +148,11 @@ func validGuideNames() string {
 
 func guideMarkdown(name string) (string, error) {
 	fileName := "SKILL.md"
-	if name == SetupGuide {
+	switch name {
+	case SetupGuide:
 		fileName = "setup.md"
+	case AuthGuide:
+		fileName = "auth.md"
 	}
 	data, err := bundledskills.FS.ReadFile(bundledskills.Root + "/" + fileName)
 	if err != nil {

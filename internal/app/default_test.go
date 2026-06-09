@@ -90,7 +90,7 @@ func TestAuthenticatedUserLabelUsesCacheUserName(t *testing.T) {
 }
 
 func TestAuthStatusNextLinesWhenAuthMissing(t *testing.T) {
-	text := strings.Join(authStatusNextLines(false, ""), "\n")
+	text := strings.Join(authStatusNextLines(config.AuthStatus{}, ""), "\n")
 	for _, want := range []string{
 		"slacky setup wizard",
 		"slacky auth import",
@@ -102,7 +102,7 @@ func TestAuthStatusNextLinesWhenAuthMissing(t *testing.T) {
 }
 
 func TestAuthStatusNextLinesWhenAuthReady(t *testing.T) {
-	text := strings.Join(authStatusNextLines(true, "@sampleuser"), "\n")
+	text := strings.Join(authStatusNextLines(config.AuthStatus{ReadyForSlack: true}, "@sampleuser"), "\n")
 	for _, want := range []string{
 		"slacky doctor",
 		"slacky search 'from:@sampleuser has:link'",

@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -213,6 +214,103 @@ func TestCompactMessageResultsDoNotSynthesizeThreadTS(t *testing.T) {
 	}
 	if results[0].RootTS != "1717440000.000000" {
 		t.Fatalf("root_ts = %q", results[0].RootTS)
+	}
+}
+
+func TestCompactMessageResultsIncludeDateAndDisplayFields(t *testing.T) {
+	results := compactMessageResults([]api.MessageResult{{
+		ChannelID: "C123",
+		TS:        "1717440000.000000",
+		User:      "U123",
+		Username:  "sample.person",
+		Excerpt:   "recommendation text",
+	}})
+	if len(results) != 1 {
+		t.Fatalf("expected one result, got %#v", results)
+	}
+	result := results[0]
+	if result.Datetime != "2024-06-03T18:40:00Z" || result.Date != "2024-06-03" {
+		t.Fatalf("datetime/date = %q/%q", result.Datetime, result.Date)
+	}
+	if result.DisplayName != "sample.person" {
+		t.Fatalf("display_name = %q", result.DisplayName)
+	}
+}
+
+func TestCompactThreadSummariesOmitNestedMessages(t *testing.T) {
+	threads := compactThreadResults([]api.ThreadResult{{
+		ChannelID: "C123",
+		RootTS:    "1717440000.000000",
+		Messages: []api.MessageResult{
+			{ChannelID: "C123", TS: "1717440000.000000", RootTS: "1717440000.000000", Username: "sample", Excerpt: "root"},
+			{ChannelID: "C123", TS: "1717440000.000100", RootTS: "1717440000.000000", Username: "sample", Excerpt: "reply"},
+		},
+	}})
+	if len(threads) != 1 {
+		t.Fatalf("expected one thread, got %#v", threads)
+	}
+	if len(threads[0].Messages) != 0 {
+		t.Fatalf("thread summary should not include nested messages: %#v", threads[0].Messages)
+	}
+	if threads[0].First.Excerpt != "root" {
+		t.Fatalf("thread summary first excerpt = %q", threads[0].First.Excerpt)
+	}
+	if threads[0].Datetime != "2024-06-03T18:40:00Z" || threads[0].Date != "2024-06-03" {
+		t.Fatalf("thread datetime/date = %q/%q", threads[0].Datetime, threads[0].Date)
+	}
+}
+
+func TestCompactThreadDetailIncludesMessagesWithoutFirstDuplicate(t *testing.T) {
+	thread := compactThreadResultFor(1, api.ThreadResult{
+		ChannelID: "C123",
+		RootTS:    "1717440000.000000",
+		Messages: []api.MessageResult{
+			{ChannelID: "C123", TS: "1717440000.000000", RootTS: "1717440000.000000", Username: "sample", Excerpt: "root"},
+			{ChannelID: "C123", TS: "1717440000.000100", RootTS: "1717440000.000000", Username: "sample", Excerpt: "reply"},
+		},
+	}, true)
+	if thread.First.Excerpt != "" {
+		t.Fatalf("thread detail should not duplicate first message: %#v", thread.First)
+	}
+	if len(thread.Messages) != 2 || thread.Messages[1].Excerpt != "reply" {
+		t.Fatalf("thread detail messages = %#v", thread.Messages)
+	}
+}
+
+func TestWriteCompactEnvelopeOmitsTextCacheAndDuplicateThreadResults(t *testing.T) {
+	text := captureStdout(t, func() {
+		err := writeCompactEnvelope(&Globals{JSON: true}, true, Envelope{
+			OK:    true,
+			Text:  "rendered text",
+			Cache: map[string]any{"cache_path": "/tmp/index.db"},
+			Thread: api.ThreadResult{
+				ChannelID: "C123",
+				RootTS:    "1717440000.000000",
+				Messages: []api.MessageResult{
+					{ChannelID: "C123", TS: "1717440000.000000", RootTS: "1717440000.000000", Username: "sample", Excerpt: "root"},
+					{ChannelID: "C123", TS: "1717440000.000100", RootTS: "1717440000.000000", Username: "sample", Excerpt: "reply"},
+				},
+			},
+			Results: []api.MessageResult{{ChannelID: "C123", TS: "1717440000.000000"}},
+		})
+		if err != nil {
+			t.Fatalf("write compact envelope: %v", err)
+		}
+	})
+	var envelope struct {
+		Text    string              `json:"text"`
+		Cache   any                 `json:"cache"`
+		Results any                 `json:"results"`
+		Thread  compactThreadResult `json:"thread"`
+	}
+	if err := json.Unmarshal([]byte(text), &envelope); err != nil {
+		t.Fatalf("decode compact envelope: %v\n%s", err, text)
+	}
+	if envelope.Text != "" || envelope.Cache != nil || envelope.Results != nil {
+		t.Fatalf("compact envelope kept noisy fields: %#v", envelope)
+	}
+	if len(envelope.Thread.Messages) != 2 || envelope.Thread.First.Excerpt != "" {
+		t.Fatalf("compact thread detail shape = %#v", envelope.Thread)
 	}
 }
 

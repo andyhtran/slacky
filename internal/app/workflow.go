@@ -32,6 +32,7 @@ var (
 type messageRenderOptions struct {
 	Verbose            bool
 	IncludeRichContent bool
+	Compact            bool
 }
 
 type SearchCmd struct {
@@ -60,6 +61,7 @@ type MessageCmd struct {
 	Verbose            bool   `help:"Return full message text" name:"verbose"`
 	IncludeRichContent bool   `help:"Include Slack blocks, attachments, and files where available" name:"include-rich-content"`
 	Refresh            bool   `help:"Bypass cache and fetch from Slack" name:"refresh"`
+	Compact            bool   `help:"Return compact agent-friendly JSON without rendered text or cache detail" name:"compact"`
 }
 
 type ThreadCmd struct {
@@ -68,6 +70,7 @@ type ThreadCmd struct {
 	Verbose            bool   `help:"Return full message text" name:"verbose"`
 	IncludeRichContent bool   `help:"Include Slack blocks, attachments, and files where available" name:"include-rich-content"`
 	Refresh            bool   `help:"Bypass cache and fetch from Slack" name:"refresh"`
+	Compact            bool   `help:"Return compact agent-friendly JSON without rendered text or cache detail" name:"compact"`
 }
 
 type ContextCmd struct {
@@ -78,6 +81,7 @@ type ContextCmd struct {
 	Verbose            bool   `help:"Return full message text" name:"verbose"`
 	IncludeRichContent bool   `help:"Include Slack blocks, attachments, and files where available" name:"include-rich-content"`
 	Refresh            bool   `help:"Bypass cache and fetch from Slack" name:"refresh"`
+	Compact            bool   `help:"Return compact agent-friendly JSON without rendered text or cache detail" name:"compact"`
 }
 
 type OpenCmd struct {
@@ -88,6 +92,7 @@ type OpenCmd struct {
 	Verbose            bool   `help:"Return full message text" name:"verbose"`
 	IncludeRichContent bool   `help:"Include Slack blocks, attachments, and files where available" name:"include-rich-content"`
 	Refresh            bool   `help:"Bypass cache and fetch from Slack" name:"refresh"`
+	Compact            bool   `help:"Return compact agent-friendly JSON without rendered text or cache detail" name:"compact"`
 }
 
 type HistoryCmd struct {
@@ -154,6 +159,9 @@ type compactMessageResult struct {
 	Permalink   string         `json:"permalink,omitempty"`
 	User        string         `json:"user,omitempty"`
 	Username    string         `json:"username,omitempty"`
+	DisplayName string         `json:"display_name,omitempty"`
+	Datetime    string         `json:"datetime,omitempty"`
+	Date        string         `json:"date,omitempty"`
 	Excerpt     string         `json:"excerpt,omitempty"`
 	Commands    resultCommands `json:"commands"`
 }
@@ -163,6 +171,8 @@ type compactThreadResult struct {
 	ChannelID    string                 `json:"channel_id,omitempty"`
 	ChannelName  string                 `json:"channel_name,omitempty"`
 	RootTS       string                 `json:"root_ts,omitempty"`
+	Datetime     string                 `json:"datetime,omitempty"`
+	Date         string                 `json:"date,omitempty"`
 	Permalink    string                 `json:"permalink,omitempty"`
 	MessageCount int                    `json:"message_count"`
 	First        compactMessageResult   `json:"first,omitempty"`
@@ -189,7 +199,7 @@ func (cmd *SearchCmd) Run(globals *Globals) error {
 		"group_by_thread":      cmd.GroupByThread,
 		"evidence":             cmd.Evidence,
 	}
-	renderOptions := messageRenderOptions{Verbose: cmd.Verbose, IncludeRichContent: cmd.IncludeRichContent}
+	renderOptions := messageRenderOptions{Verbose: cmd.Verbose, IncludeRichContent: cmd.IncludeRichContent, Compact: cmd.Compact}
 	if !cmd.Local && !authStatus.ReadyForSlack {
 		return missingAuthError(pathSet.AuthFile.Path)
 	}
@@ -361,7 +371,7 @@ func (cmd *FindCmd) Run(globals *Globals) error {
 	if err != nil {
 		return err
 	}
-	renderOptions := messageRenderOptions{Verbose: cmd.Verbose, IncludeRichContent: cmd.IncludeRichContent}
+	renderOptions := messageRenderOptions{Verbose: cmd.Verbose, IncludeRichContent: cmd.IncludeRichContent, Compact: cmd.Compact}
 	local := store.LocalSearchResult{Messages: []api.MessageResult{}, Suggestions: []string{}}
 	if !globals.NoCache {
 		if cacheDB, cacheErr := store.OpenReadOnly(pathSet.CacheDB.Path); cacheErr == nil {
@@ -489,13 +499,18 @@ func (cmd *MessageCmd) Run(globals *Globals) error {
 			"permalink":  message.Permalink,
 		},
 	})
-	text := renderMessageListWithOptions("Message", nil, messagesForHuman(ctx, globals, nil, client, []api.MessageResult{message}, nil), renderOptions)
-	return writeEnvelope(globals, Envelope{
+	displayMessages := messagesForHuman(ctx, globals, nil, client, []api.MessageResult{message}, nil)
+	displayMessage := message
+	if len(displayMessages) > 0 {
+		displayMessage = displayMessages[0]
+	}
+	text := renderMessageListWithOptions("Message", nil, displayMessages, renderOptions)
+	return writeCompactEnvelope(globals, cmd.Compact, Envelope{
 		OK:      true,
 		Text:    text,
 		Source:  "slack",
-		Message: message,
-		Results: []api.MessageResult{message},
+		Message: displayMessage,
+		Results: []api.MessageResult{displayMessage},
 		Cache:   cacheStatus,
 	})
 }
@@ -517,7 +532,7 @@ func (cmd *ThreadCmd) Run(globals *Globals) error {
 	if err != nil {
 		return err
 	}
-	renderOptions := messageRenderOptions{Verbose: cmd.Verbose, IncludeRichContent: cmd.IncludeRichContent}
+	renderOptions := messageRenderOptions{Verbose: cmd.Verbose, IncludeRichContent: cmd.IncludeRichContent, Compact: cmd.Compact}
 	rootTS := ""
 	if !globals.NoCache {
 		rootTS = resolveCachedThreadRootTS(channelID, cmd.TS)
@@ -558,13 +573,14 @@ func (cmd *ThreadCmd) Run(globals *Globals) error {
 		return slackAPIError(err)
 	}
 	cacheStatus := cacheThread(globals, thread)
-	text := renderThreadListWithOptions("Thread", nil, []api.ThreadResult{threadForHuman(ctx, globals, nil, client, thread, nil)}, renderOptions)
-	return writeEnvelope(globals, Envelope{
+	displayThread := threadForHuman(ctx, globals, client, thread)
+	text := renderThreadListWithOptions("Thread", nil, []api.ThreadResult{displayThread}, renderOptions)
+	return writeCompactEnvelope(globals, cmd.Compact, Envelope{
 		OK:      true,
 		Text:    text,
 		Source:  "slack",
-		Thread:  thread,
-		Results: thread.Messages,
+		Thread:  displayThread,
+		Results: displayThread.Messages,
 		Cache:   cacheStatus,
 	})
 }
@@ -586,7 +602,7 @@ func (cmd *ContextCmd) Run(globals *Globals) error {
 	if err != nil {
 		return err
 	}
-	renderOptions := messageRenderOptions{Verbose: cmd.Verbose, IncludeRichContent: cmd.IncludeRichContent}
+	renderOptions := messageRenderOptions{Verbose: cmd.Verbose, IncludeRichContent: cmd.IncludeRichContent, Compact: cmd.Compact}
 	if !globals.NoCache {
 		if root := resolveCachedThreadRootTS(channelID, cmd.TS); root != "" && root != cmd.TS {
 			return writeThreadReplyContext(globals, ctx, client, channelID, cmd.TS, root, cmd.IncludeRichContent, renderOptions)
@@ -630,19 +646,20 @@ func (cmd *ContextCmd) Run(globals *Globals) error {
 					}
 					cacheStatus := cacheThread(globals, thread)
 					notice := "target timestamp is a thread reply; showing the containing thread"
+					displayThread := threadForHuman(ctx, globals, client, thread)
 					text := renderMessageListWithOptions("Context", []string{
 						fmt.Sprintf("Channel: %s", channelID),
 						fmt.Sprintf("TS: %s", cmd.TS),
 						fmt.Sprintf("Root: %s", root),
 						fmt.Sprintf("Notice: %s", notice),
-					}, messagesForHuman(ctx, globals, nil, client, thread.Messages, nil), renderOptions)
-					return writeEnvelope(globals, Envelope{
+					}, displayThread.Messages, renderOptions)
+					return writeCompactEnvelope(globals, cmd.Compact, Envelope{
 						OK:          true,
 						Text:        text,
 						Source:      "slack",
 						CacheNotice: notice,
-						Results:     thread.Messages,
-						Thread:      thread,
+						Results:     displayThread.Messages,
+						Thread:      displayThread,
 						Cache:       cacheStatus,
 					})
 				}
@@ -681,17 +698,18 @@ func (cmd *ContextCmd) Run(globals *Globals) error {
 			"returned":   len(messages),
 		},
 	})
+	displayMessages := messagesForHuman(ctx, globals, nil, client, messages, nil)
 	text := renderMessageListWithOptions("Context", []string{
 		fmt.Sprintf("Channel: %s", channelID),
 		fmt.Sprintf("TS: %s", cmd.TS),
 		fmt.Sprintf("Before: %d", cmd.Before),
 		fmt.Sprintf("After: %d", cmd.After),
-	}, messagesForHuman(ctx, globals, nil, client, messages, nil), renderOptions)
-	return writeEnvelope(globals, Envelope{
+	}, displayMessages, renderOptions)
+	return writeCompactEnvelope(globals, cmd.Compact, Envelope{
 		OK:      true,
 		Text:    text,
 		Source:  "slack",
-		Results: messages,
+		Results: displayMessages,
 		Cache:   cacheStatus,
 	})
 }
@@ -714,19 +732,20 @@ func writeThreadReplyContext(globals *Globals, ctx context.Context, client *api.
 	}
 	cacheStatus := cacheThread(globals, thread)
 	notice := "target timestamp is a thread reply; showing the containing thread"
+	displayThread := threadForHuman(ctx, globals, client, thread)
 	text := renderMessageListWithOptions("Context", []string{
 		fmt.Sprintf("Channel: %s", channelID),
 		fmt.Sprintf("TS: %s", targetTS),
 		fmt.Sprintf("Root: %s", rootTS),
 		fmt.Sprintf("Notice: %s", notice),
-	}, messagesForHuman(ctx, globals, nil, client, thread.Messages, nil), renderOptions)
-	return writeEnvelope(globals, Envelope{
+	}, displayThread.Messages, renderOptions)
+	return writeCompactEnvelope(globals, renderOptions.Compact, Envelope{
 		OK:          true,
 		Text:        text,
 		Source:      "slack",
 		CacheNotice: notice,
-		Results:     thread.Messages,
-		Thread:      thread,
+		Results:     displayThread.Messages,
+		Thread:      displayThread,
 		Cache:       cacheStatus,
 	})
 }
@@ -741,16 +760,16 @@ func (cmd *OpenCmd) Run(globals *Globals) error {
 	}
 	switch cmd.Mode {
 	case "thread":
-		thread := ThreadCmd{Channel: ref.ChannelID, TS: firstNonEmpty(ref.ThreadTS, ref.TS), Verbose: cmd.Verbose, IncludeRichContent: cmd.IncludeRichContent, Refresh: cmd.Refresh}
+		thread := ThreadCmd{Channel: ref.ChannelID, TS: firstNonEmpty(ref.ThreadTS, ref.TS), Verbose: cmd.Verbose, IncludeRichContent: cmd.IncludeRichContent, Refresh: cmd.Refresh, Compact: cmd.Compact}
 		return thread.Run(globals)
 	case "context":
-		contextCmd := ContextCmd{Channel: ref.ChannelID, TS: firstNonEmpty(ref.ThreadTS, ref.TS), Before: cmd.Before, After: cmd.After, Verbose: cmd.Verbose, IncludeRichContent: cmd.IncludeRichContent, Refresh: cmd.Refresh}
+		contextCmd := ContextCmd{Channel: ref.ChannelID, TS: firstNonEmpty(ref.ThreadTS, ref.TS), Before: cmd.Before, After: cmd.After, Verbose: cmd.Verbose, IncludeRichContent: cmd.IncludeRichContent, Refresh: cmd.Refresh, Compact: cmd.Compact}
 		return contextCmd.Run(globals)
 	default:
 		if ref.ThreadTS != "" && ref.ThreadTS != ref.TS {
-			return renderMessageFromThread(globals, ref.ChannelID, ref.ThreadTS, ref.TS, cmd.Verbose, cmd.IncludeRichContent)
+			return renderMessageFromThread(globals, ref.ChannelID, ref.ThreadTS, ref.TS, cmd.Verbose, cmd.IncludeRichContent, cmd.Compact)
 		}
-		message := MessageCmd{Channel: ref.ChannelID, TS: ref.TS, Verbose: cmd.Verbose, IncludeRichContent: cmd.IncludeRichContent, Refresh: cmd.Refresh}
+		message := MessageCmd{Channel: ref.ChannelID, TS: ref.TS, Verbose: cmd.Verbose, IncludeRichContent: cmd.IncludeRichContent, Refresh: cmd.Refresh, Compact: cmd.Compact}
 		return message.Run(globals)
 	}
 }
@@ -1006,7 +1025,7 @@ func runtimeState() (paths.Set, config.AuthStatus, store.Status, error) {
 	if err != nil {
 		return paths.Set{}, config.AuthStatus{}, store.Status{}, err
 	}
-	return pathSet, config.InspectAuth(pathSet.AuthFile.Path), store.Inspect(pathSet.CacheDB.Path), nil
+	return pathSet, inspectAuthStatus(pathSet), store.Inspect(pathSet.CacheDB.Path), nil
 }
 
 func currentCacheStatus() store.Status {
@@ -1097,6 +1116,16 @@ func writeCompactEnvelope(globals *Globals, compact bool, envelope Envelope) err
 	if compact && globals.JSON {
 		envelope.Text = ""
 		envelope.Cache = nil
+		hasCompactMessage := false
+		if message, ok := envelope.Message.(api.MessageResult); ok {
+			envelope.Message = compactMessageResultFor(1, message)
+			envelope.Results = nil
+			hasCompactMessage = true
+		}
+		if thread, ok := envelope.Thread.(api.ThreadResult); ok {
+			envelope.Thread = compactThreadResultFor(1, thread, !hasCompactMessage)
+			envelope.Results = nil
+		}
 		if messages, ok := envelope.Results.([]api.MessageResult); ok {
 			envelope.Results = compactMessageResults(messages)
 		}
@@ -1115,28 +1144,29 @@ func writeCachedMessages(globals *Globals, ctx context.Context, client *api.Clie
 		Text:        text,
 		Source:      "cache",
 		CacheNotice: notice,
-		Results:     messages,
+		Results:     displayMessages,
 		Cache:       currentCacheStatus(),
 	}
 	if title == "Message" && len(messages) == 1 {
-		envelope.Message = messages[0]
+		envelope.Message = displayMessages[0]
 	}
 	if thread.ChannelID != "" || len(thread.Messages) > 0 {
+		thread.Messages = displayMessages
 		envelope.Thread = thread
 	}
-	return writeEnvelope(globals, envelope)
+	return writeCompactEnvelope(globals, options.Compact, envelope)
 }
 
 func writeCachedThread(globals *Globals, ctx context.Context, client *api.Client, title string, header []string, thread api.ThreadResult, notice string, options messageRenderOptions) error {
-	displayThread := threadForHuman(ctx, globals, nil, client, thread, nil)
+	displayThread := threadForHuman(ctx, globals, client, thread)
 	text := renderThreadListWithOptions(title, noticeHeader(header, notice), []api.ThreadResult{displayThread}, options)
-	return writeEnvelope(globals, Envelope{
+	return writeCompactEnvelope(globals, options.Compact, Envelope{
 		OK:          true,
 		Text:        text,
 		Source:      "cache",
 		CacheNotice: notice,
-		Thread:      thread,
-		Results:     thread.Messages,
+		Thread:      displayThread,
+		Results:     displayThread.Messages,
 		Cache:       currentCacheStatus(),
 	})
 }
@@ -1170,14 +1200,14 @@ func resolveCachedThreadRootTS(channelID string, ts string) string {
 	return ""
 }
 
-func renderMessageFromThread(globals *Globals, channelID string, rootTS string, messageTS string, verbose bool, includeRichContent bool) error {
+func renderMessageFromThread(globals *Globals, channelID string, rootTS string, messageTS string, verbose bool, includeRichContent bool, compact bool) error {
 	client, err := liveWorkflowClient(globals)
 	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), globals.Timeout)
 	defer cancel()
-	renderOptions := messageRenderOptions{Verbose: verbose, IncludeRichContent: includeRichContent}
+	renderOptions := messageRenderOptions{Verbose: verbose, IncludeRichContent: includeRichContent, Compact: compact}
 	thread, err := client.Thread(ctx, channelID, rootTS, includeRichContent)
 	if err != nil {
 		if isRateLimitError(err) && !globals.NoCache {
@@ -1200,16 +1230,24 @@ func renderMessageFromThread(globals *Globals, channelID string, rootTS string, 
 	for index := range thread.Messages {
 		message := thread.Messages[index]
 		if message.TS == messageTS {
+			displayThread := threadForHuman(ctx, globals, client, thread)
+			displayMessage := message
+			for displayIndex := range displayThread.Messages {
+				if displayThread.Messages[displayIndex].TS == messageTS {
+					displayMessage = displayThread.Messages[displayIndex]
+					break
+				}
+			}
 			text := renderMessageListWithOptions("Message", []string{
 				fmt.Sprintf("Thread: %s", rootTS),
-			}, messagesForHuman(ctx, globals, nil, client, []api.MessageResult{message}, nil), renderOptions)
-			return writeEnvelope(globals, Envelope{
+			}, []api.MessageResult{displayMessage}, renderOptions)
+			return writeCompactEnvelope(globals, compact, Envelope{
 				OK:      true,
 				Text:    text,
 				Source:  "slack",
-				Message: message,
-				Results: []api.MessageResult{message},
-				Thread:  thread,
+				Message: displayMessage,
+				Results: []api.MessageResult{displayMessage},
+				Thread:  displayThread,
 				Cache:   cacheStatus,
 			})
 		}
@@ -1320,11 +1358,18 @@ func liveWorkflowClient(globals *Globals) (*api.Client, error) {
 }
 
 func slackClient(globals *Globals, authPath string) (*api.Client, error) {
-	auth, err := config.LoadAuth(authPath)
+	pathSet, pathErr := paths.Resolve()
+	var auth config.Auth
+	var err error
+	if pathErr == nil && authPath == pathSet.AuthFile.Path {
+		auth, err = refreshActiveAuthIfDue(globals, pathSet)
+	} else {
+		auth, err = config.LoadAuth(authPath)
+	}
 	if err != nil {
 		return nil, err
 	}
-	client := api.NewClient(auth.UserToken, appVersion, globals.Timeout, globals.MaxRateLimitWait)
+	client := apiClientFromAuth(globals, auth)
 	client.Cooldown = activeCooldown
 	return client, nil
 }
@@ -1826,8 +1871,8 @@ func messagesForHuman(ctx context.Context, globals *Globals, cacheDB *store.DB, 
 	return messagesWithDisplayChannels(messagesWithDisplayMentions(messages, userLabels), channelNames)
 }
 
-func threadForHuman(ctx context.Context, globals *Globals, cacheDB *store.DB, client *api.Client, thread api.ThreadResult, expansions []searchUserExpansion) api.ThreadResult {
-	thread.Messages = messagesForHuman(ctx, globals, cacheDB, client, thread.Messages, expansions)
+func threadForHuman(ctx context.Context, globals *Globals, client *api.Client, thread api.ThreadResult) api.ThreadResult {
+	thread.Messages = messagesForHuman(ctx, globals, nil, client, thread.Messages, nil)
 	if thread.ChannelName == "" {
 		for index := range thread.Messages {
 			message := thread.Messages[index]
@@ -2543,6 +2588,7 @@ func compactMessageResults(messages []api.MessageResult) []compactMessageResult 
 }
 
 func compactMessageResultFor(ref int, message api.MessageResult) compactMessageResult {
+	message = enrichMessageForJSON(message)
 	return compactMessageResult{
 		Ref:         ref,
 		ChannelID:   message.ChannelID,
@@ -2553,6 +2599,9 @@ func compactMessageResultFor(ref int, message api.MessageResult) compactMessageR
 		Permalink:   message.Permalink,
 		User:        message.User,
 		Username:    message.Username,
+		DisplayName: message.DisplayName,
+		Datetime:    message.Datetime,
+		Date:        message.Date,
 		Excerpt:     excerptMessageText(message),
 		Commands:    messageCommands(message),
 	}
@@ -2561,26 +2610,36 @@ func compactMessageResultFor(ref int, message api.MessageResult) compactMessageR
 func compactThreadResults(threads []api.ThreadResult) []compactThreadResult {
 	results := make([]compactThreadResult, 0, len(threads))
 	for index := range threads {
-		thread := threads[index]
-		result := compactThreadResult{
-			Ref:          index + 1,
-			ChannelID:    thread.ChannelID,
-			ChannelName:  thread.ChannelName,
-			RootTS:       thread.RootTS,
-			Permalink:    thread.Permalink,
-			MessageCount: len(thread.Messages),
-			Commands: resultCommands{
-				Thread: threadOpenCommand(thread),
-				Open:   openCommand(thread.Permalink),
-			},
-		}
-		if len(thread.Messages) > 0 {
-			result.First = compactMessageResultFor(1, thread.Messages[0])
-			result.Messages = compactMessageResults(thread.Messages)
-		}
-		results = append(results, result)
+		results = append(results, compactThreadResultFor(index+1, threads[index], false))
 	}
 	return results
+}
+
+func compactThreadResultFor(ref int, thread api.ThreadResult, includeMessages bool) compactThreadResult {
+	thread = enrichThreadForJSON(thread)
+	result := compactThreadResult{
+		Ref:          ref,
+		ChannelID:    thread.ChannelID,
+		ChannelName:  thread.ChannelName,
+		RootTS:       thread.RootTS,
+		Datetime:     thread.Datetime,
+		Date:         thread.Date,
+		Permalink:    thread.Permalink,
+		MessageCount: len(thread.Messages),
+		Commands: resultCommands{
+			Thread: threadOpenCommand(thread),
+			Open:   openCommand(thread.Permalink),
+		},
+	}
+	if len(thread.Messages) == 0 {
+		return result
+	}
+	if includeMessages {
+		result.Messages = compactMessageResults(thread.Messages)
+		return result
+	}
+	result.First = compactMessageResultFor(1, thread.Messages[0])
+	return result
 }
 
 func messageCommands(message api.MessageResult) resultCommands {

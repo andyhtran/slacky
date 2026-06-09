@@ -15,6 +15,7 @@ const BaseURL = "https://slack.com/api/"
 
 type Client struct {
 	Token            string
+	SessionCookieD   string
 	UserAgent        string
 	HTTPClient       *http.Client
 	MaxRateLimitWait time.Duration
@@ -119,6 +120,9 @@ func (client *Client) call(ctx context.Context, method string, values url.Values
 	request.Header.Set("Authorization", "Bearer "+client.Token)
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("User-Agent", client.UserAgent)
+	if client.SessionCookieD != "" {
+		request.AddCookie(&http.Cookie{Name: "d", Value: client.SessionCookieD})
+	}
 
 	response, err := client.HTTPClient.Do(request)
 	if err != nil {

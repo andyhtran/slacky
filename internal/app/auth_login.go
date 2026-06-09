@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/andyhtran/slacky/internal/api"
-	"github.com/andyhtran/slacky/internal/config"
 	"github.com/andyhtran/slacky/internal/output"
 	"github.com/andyhtran/slacky/internal/paths"
 )
@@ -41,7 +40,7 @@ func (cmd *AuthLoginCmd) Run(globals *Globals) error {
 	if err != nil {
 		return err
 	}
-	existing, _ := config.LoadAuth(pathSet.AuthFile.Path)
+	existing := loadExistingAuthForProfile(pathSet, cmd.Name)
 	clientID := firstNonEmpty(cmd.ClientID, existing.ClientID)
 	clientSecret := firstNonEmpty(cmd.ClientSecret, existing.ClientSecret)
 	redirectURI := firstNonEmpty(cmd.RedirectURI, existing.RedirectURI, defaultRedirectURI)
@@ -60,16 +59,16 @@ func (cmd *AuthLoginCmd) Run(globals *Globals) error {
 
 	callbackURL := strings.TrimSpace(cmd.CallbackURL)
 	if callbackURL == "" && (cmd.Manual || cmd.PasteCallback) {
-		return cmd.runManual(globals, pathSet, existing, clientID, clientSecret, redirectURI, pkce, state)
+		return cmd.runManual(globals, pathSet, clientID, clientSecret, redirectURI, pkce, state)
 	}
 	if callbackURL != "" {
 		callback, err := parseCallbackURL(callbackURL)
 		if err != nil {
 			return appError("invalid_callback_url", err.Error())
 		}
-		return cmd.exchangeAndStore(globals, pathSet, existing, clientID, clientSecret, redirectURI, pkce.Verifier, state, callback)
+		return cmd.exchangeAndStore(globals, pathSet, clientID, clientSecret, redirectURI, pkce.Verifier, state, callback)
 	}
-	return cmd.runLocalCallback(globals, pathSet, existing, clientID, clientSecret, redirectURI, pkce, state)
+	return cmd.runLocalCallback(globals, pathSet, clientID, clientSecret, redirectURI, pkce, state)
 }
 
 func (cmd AuthLoginCmd) withRuntimeDefaults() AuthLoginCmd {
@@ -85,7 +84,7 @@ func (cmd AuthLoginCmd) withRuntimeDefaults() AuthLoginCmd {
 	return cmd
 }
 
-func (cmd *AuthLoginCmd) runManual(globals *Globals, pathSet paths.Set, existing config.Auth, clientID string, clientSecret string, redirectURI string, pkce api.PKCEPair, state string) error {
+func (cmd *AuthLoginCmd) runManual(globals *Globals, pathSet paths.Set, clientID string, clientSecret string, redirectURI string, pkce api.PKCEPair, state string) error {
 	authURL := api.BuildUserAuthorizeURL(clientID, redirectURI, state, pkce.Challenge, api.UserScopes)
 	fmt.Fprintln(os.Stderr, "Open this Slack authorization URL:")
 	fmt.Fprintln(os.Stderr, authURL)
@@ -103,10 +102,10 @@ func (cmd *AuthLoginCmd) runManual(globals *Globals, pathSet paths.Set, existing
 	if err != nil {
 		return appError("invalid_callback_url", err.Error())
 	}
-	return cmd.exchangeAndStore(globals, pathSet, existing, clientID, clientSecret, redirectURI, pkce.Verifier, state, callback)
+	return cmd.exchangeAndStore(globals, pathSet, clientID, clientSecret, redirectURI, pkce.Verifier, state, callback)
 }
 
-func (cmd *AuthLoginCmd) runLocalCallback(globals *Globals, pathSet paths.Set, existing config.Auth, clientID string, clientSecret string, redirectURI string, pkce api.PKCEPair, state string) error {
+func (cmd *AuthLoginCmd) runLocalCallback(globals *Globals, pathSet paths.Set, clientID string, clientSecret string, redirectURI string, pkce api.PKCEPair, state string) error {
 	actualRedirectURI, callbacks, shutdown, err := startOAuthListener(redirectURI, cmd.Port, cmd.FallbackPort)
 	if err != nil {
 		return err
@@ -130,13 +129,13 @@ func (cmd *AuthLoginCmd) runLocalCallback(globals *Globals, pathSet paths.Set, e
 
 	select {
 	case callback := <-callbacks:
-		return cmd.exchangeAndStore(globals, pathSet, existing, clientID, clientSecret, actualRedirectURI, pkce.Verifier, state, callback)
+		return cmd.exchangeAndStore(globals, pathSet, clientID, clientSecret, actualRedirectURI, pkce.Verifier, state, callback)
 	case <-time.After(cmd.WaitTimeout):
 		return appError("oauth_timeout", "timed out waiting for Slack OAuth callback")
 	}
 }
 
-func (cmd *AuthLoginCmd) exchangeAndStore(globals *Globals, pathSet paths.Set, existing config.Auth, clientID string, clientSecret string, redirectURI string, verifier string, expectedState string, callback oauthCallback) error {
+func (cmd *AuthLoginCmd) exchangeAndStore(globals *Globals, pathSet paths.Set, clientID string, clientSecret string, redirectURI string, verifier string, expectedState string, callback oauthCallback) error {
 	if callback.Error != "" {
 		return appError("oauth_callback_error", callback.Error)
 	}
@@ -156,18 +155,7 @@ func (cmd *AuthLoginCmd) exchangeAndStore(globals *Globals, pathSet paths.Set, e
 		return appError("oauth_exchange_failed", err.Error())
 	}
 
-	auth := existing
-	auth.ClientID = clientID
-	auth.ClientSecret = clientSecret
-	auth.RedirectURI = redirectURI
-	auth.UserToken = token.AccessToken
-	auth.TokenType = token.TokenType
-	auth.UserID = token.UserID
-	auth.TeamID = token.TeamID
-	auth.TeamName = token.TeamName
-	auth.Scopes = token.Scopes
-	auth.RefreshToken = token.RefreshToken
-	auth.ExpiresAt = token.ExpiresAt
+	auth := oauthUserAuth(clientID, clientSecret, redirectURI, token)
 	identity, err := authTestImportedToken(globals, auth.UserToken)
 	if err != nil {
 		return err
@@ -179,26 +167,19 @@ func (cmd *AuthLoginCmd) exchangeAndStore(globals *Globals, pathSet paths.Set, e
 	if len(identity.Scopes) > 0 {
 		auth.Scopes = append([]string{}, identity.Scopes...)
 	}
-	if err := config.WriteAuth(pathSet.AuthFile.Path, auth); err != nil {
+	profileName := strings.TrimSpace(cmd.Name)
+	auth.ProfileName = profileName
+	storedPath, err := writeSelectedAuth(pathSet, profileName, auth)
+	if err != nil {
 		return err
 	}
 
-	summary := map[string]any{
-		"path":              pathSet.AuthFile.Path,
-		"team_id":           auth.TeamID,
-		"team_name":         auth.TeamName,
-		"user_id":           auth.UserID,
-		"user_name":         auth.UserName,
-		"token_type":        auth.TokenType,
-		"scopes":            auth.Scopes,
-		"has_user_token":    auth.UserToken != "",
-		"has_refresh_token": auth.RefreshToken != "",
-		"expires_at":        auth.ExpiresAt,
-	}
+	summary := authProfileSummary(profileName, storedPath, auth)
 	text := strings.Join([]string{
 		"Auth login complete",
 		"",
-		fmt.Sprintf("Stored: %s", pathSet.AuthFile.Path),
+		fmt.Sprintf("Stored: %s", storedPath),
+		fmt.Sprintf("Profile: %s", blank(auth.ProfileName)),
 		fmt.Sprintf("Team: %s", blank(auth.TeamName)),
 		fmt.Sprintf("User: %s", authDisplayLabel(auth.UserID, auth.UserName)),
 		fmt.Sprintf("Scopes: %d", len(auth.Scopes)),

@@ -1,6 +1,6 @@
 ---
 name: slacky-setup
-description: Use when helping a user install slacky, create the Slack app manifest, import a Slack user token, run OAuth login, or verify first-time auth.
+description: Use when helping a user install slacky, create the Slack app manifest, import a Slack user token, run OAuth login, use browser-session fallback auth, or verify first-time auth.
 ---
 
 # Slacky Setup
@@ -64,6 +64,30 @@ For non-interactive setup, prefer an environment variable over command-line toke
 slacky auth import --token-env SLACKY_USER_TOKEN
 ```
 
+Use named profiles when testing or switching between Slack accounts/workspaces:
+
+```sh
+slacky auth login --name work
+slacky auth import --name work-token
+slacky auth list
+slacky auth switch work-token
+```
+
+Named profiles also isolate the local cache by profile, Slack team, and Slack user. `slacky auth status` and `slacky paths` show the exact active cache DB.
+
+Browser session import is an advanced fallback for workspaces where Slack app installation is blocked but the user can already open Slack in a browser. It needs both the `xoxc-...` token from Slack web localStorage and the value of the browser cookie named `d`, usually `xoxd-...`:
+
+```sh
+slacky auth import-session --wizard --name work-browser
+slacky auth status
+```
+
+The wizard prints browser Developer Tools steps, then prompts with hidden input. Do not ask the user to paste `xoxc`, `xoxd`, or cookie values into chat, command arguments, logs, or notes. For local non-interactive testing, put the values in environment variables and use:
+
+```sh
+slacky auth import-session --name work-browser --xoxc-env SLACKY_XOXC --xoxd-env SLACKY_XOXD
+```
+
 If the user does not already have a token, create a Slack app from the bundled manifest:
 
 ```sh
@@ -75,17 +99,18 @@ Prefer `slacky setup wizard` for a human first-run setup. It writes the manifest
 
 Use `slacky setup wizard --headless --json` when an agent only needs a structured setup plan and should not open a browser, prompt, or start OAuth.
 
-Use `slacky setup steps` when you only need the static copy/paste manifest and manual instructions. The generated app uses read-only user scopes, disables bot scopes, disables webhooks, disables Socket Mode, and disables token rotation.
+Use `slacky setup steps` when you only need the static copy/paste manifest and manual instructions. The generated app uses read-only user scopes, disables bot scopes, disables webhooks, disables Socket Mode, and disables token rotation for the simplest setup.
 
-Keep `token_rotation_enabled` set to `false` unless Slacky adds automatic refresh support. If Slack token rotation is enabled, Slack user tokens can expire and need to be refreshed before read commands keep working.
+After OAuth login, run `slacky auth status --json`. If `expires_at` is present, the profile has rotating OAuth credentials. Slacky refreshes due OAuth tokens before live Slack API commands when `refresh_possible` is true; use `slacky auth refresh --profile <name>` when diagnosing auth.
 
 If the user needs to switch accounts, test setup from a clean auth state, or replace credentials, log out first:
 
 ```sh
 slacky auth logout
+slacky auth logout --name work-browser
 ```
 
-This removes only the local auth file. It does not revoke the Slack token server-side and it keeps the local message cache.
+This removes only local auth storage. It does not revoke the Slack token or browser session server-side and it keeps the local message cache.
 
 ## From Scratch Slack App
 

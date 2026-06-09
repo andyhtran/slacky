@@ -72,6 +72,7 @@ func (cmd *SkillSummaryCmd) Run(globals *Globals) error {
 		"Runtime guidance:",
 		"  slacky skills get core",
 		"  slacky skills get setup",
+		"  slacky skills get auth",
 	}, "\n")
 	return writeEnvelope(globals, Envelope{
 		OK:    true,
@@ -112,6 +113,7 @@ func (cmd *SkillInstallCmd) Run(globals *Globals) error {
 		"Next:",
 		"  slacky skills get core",
 		"  slacky skills get setup",
+		"  slacky skills get auth",
 		"  slacky skill status",
 	}, "\n")
 	return writeEnvelope(globals, Envelope{
@@ -202,6 +204,7 @@ func (cmd *SkillsSummaryCmd) Run(globals *Globals) error {
 		"  slacky skills list",
 		"  slacky skills get core",
 		"  slacky skills get setup",
+		"  slacky skills get auth",
 		"  slacky skills get --all",
 	}, "\n")
 	return writeEnvelope(globals, Envelope{
@@ -219,7 +222,7 @@ func (cmd *SkillsListCmd) Run(globals *Globals) error {
 			lines = append(lines, fmt.Sprintf("- %s: %s", guide.Name, guide.Description))
 		}
 	}
-	lines = append(lines, "", "Next:", "  slacky skills get core", "  slacky skills get setup")
+	lines = append(lines, "", "Next:", "  slacky skills get core", "  slacky skills get setup", "  slacky skills get auth")
 	return writeEnvelope(globals, Envelope{
 		OK:     true,
 		Text:   strings.Join(lines, "\n"),

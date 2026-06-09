@@ -39,7 +39,7 @@ type CLI struct {
 	Skill        SkillCmd        `cmd:"" help:"Install and manage the bundled agent skill"`
 	Skills       SkillsCmd       `cmd:"" help:"List and print bundled runtime guidance"`
 	Search       SearchCmd       `cmd:"" help:"Search Slack messages"`
-	Find         FindCmd         `cmd:"" help:"Rank whole conversations for a topic"`
+	Find         FindCmd         `cmd:"" help:"Rank conversations for consensus and recommendations"`
 	Message      MessageCmd      `cmd:"" help:"Fetch a single message"`
 	Thread       ThreadCmd       `cmd:"" help:"Fetch a thread"`
 	Context      ContextCmd      `cmd:"" help:"Fetch surrounding channel context"`
