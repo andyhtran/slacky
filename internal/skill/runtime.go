@@ -29,7 +29,7 @@ func ListGuides() []RuntimeGuide {
 	return []RuntimeGuide{
 		{
 			Name:        CoreGuide,
-			Description: "Day-to-day read-only Slack search, context, output, safety, and diagnostics guidance.",
+			Description: "Day-to-day read-only Slack search, context, and compact agent output guidance.",
 			Visible:     true,
 		},
 		{
@@ -71,7 +71,7 @@ func GetAllGuides() ([]RuntimeGuide, error) {
 func StubMarkdown(version string) string {
 	return fmt.Sprintf(`---
 name: slacky
-description: Use when searching Slack for fast context or setting up Slack workspace access with the read-only slacky CLI.
+description: Use when searching Slack and getting read-only context with the slacky CLI.
 ---
 
 # Slacky
@@ -88,7 +88,7 @@ Use setup guidance for first-run installs, Slack app creation, token import, or 
 
 Safety:
 - Slacky is read-only against Slack.
-- Use slacky auth status and slacky doctor before live searches.
+- Start search tasks directly with the runtime guide; use auth status or doctor only when a command reports an issue.
 - Use slacky skills get <name> --json only when structured skill output is needed; the default is Markdown.
 `, version, "```sh\nslacky skills get core\n```", "```sh\nslacky skills get setup\n```")
 }

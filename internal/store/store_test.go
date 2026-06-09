@@ -43,7 +43,7 @@ func TestStoreSearchAndStatus(t *testing.T) {
 	if err := db.UpsertUser(api.UserResult{ID: "U123", TeamID: "T123", Name: "person", RealName: "Person Example", Email: "person@example.com"}); err != nil {
 		t.Fatalf("upsert user: %v", err)
 	}
-	if err := db.UpsertUser(api.UserResult{ID: "U456", TeamID: "T123", Name: "nanoalex", RealName: "alex"}); err != nil {
+	if err := db.UpsertUser(api.UserResult{ID: "U456", TeamID: "T123", Name: "samplealias", RealName: "sample"}); err != nil {
 		t.Fatalf("upsert visible-name user: %v", err)
 	}
 
@@ -90,7 +90,7 @@ func TestStoreSearchAndStatus(t *testing.T) {
 	if !found || user.ID != "U123" {
 		t.Fatalf("expected cached user by name, got found=%t user=%#v", found, user)
 	}
-	user, found, err = db.UserByName("@alex")
+	user, found, err = db.UserByName("@sample")
 	if err != nil {
 		t.Fatalf("user by visible name: %v", err)
 	}
@@ -119,14 +119,14 @@ func TestStoreUserByID(t *testing.T) {
 	defer func() {
 		_ = db.Close()
 	}()
-	if err := db.UpsertUser(api.UserResult{ID: "U456", TeamID: "T123", Name: "nanoalex", RealName: "alex"}); err != nil {
+	if err := db.UpsertUser(api.UserResult{ID: "U456", TeamID: "T123", Name: "samplealias", RealName: "sample"}); err != nil {
 		t.Fatalf("upsert user: %v", err)
 	}
 	user, found, err := db.UserByID("U456")
 	if err != nil {
 		t.Fatalf("user by id: %v", err)
 	}
-	if !found || user.Name != "nanoalex" {
+	if !found || user.Name != "samplealias" {
 		t.Fatalf("expected cached user by id, got found=%t user=%#v", found, user)
 	}
 }

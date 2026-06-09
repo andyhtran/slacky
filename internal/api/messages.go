@@ -444,12 +444,13 @@ type searchChannel struct {
 }
 
 func (message searchMessage) result(includeRichContent bool) MessageResult {
+	threadTS := firstNonEmpty(message.ThreadTS, threadTSFromPermalink(message.Permalink))
 	result := MessageResult{
 		ChannelID:   message.Channel.ID,
 		ChannelName: message.Channel.Name,
 		TS:          message.TS,
-		ThreadTS:    message.ThreadTS,
-		RootTS:      rootTS(message.TS, message.ThreadTS),
+		ThreadTS:    threadTS,
+		RootTS:      rootTS(message.TS, threadTS),
 		Permalink:   message.Permalink,
 		User:        message.User,
 		Username:    message.Username,
@@ -599,6 +600,17 @@ func rootTS(ts string, threadTS string) string {
 		return threadTS
 	}
 	return ts
+}
+
+func threadTSFromPermalink(permalink string) string {
+	if permalink == "" {
+		return ""
+	}
+	parsed, err := url.Parse(permalink)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(parsed.Query().Get("thread_ts"))
 }
 
 func CleanSlackText(text string) string {

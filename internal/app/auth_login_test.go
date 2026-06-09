@@ -39,12 +39,12 @@ func TestAuthLoginRuntimeDefaultsPreserveExplicitValues(t *testing.T) {
 }
 
 func TestAuthLoginUserSuggestionUsesResolvedIdentity(t *testing.T) {
-	user := authMentionLabel("U123", "andyhtran")
-	if user != "@andyhtran" {
+	user := authMentionLabel("U123", "sampleuser")
+	if user != "@sampleuser" {
 		t.Fatalf("auth user label = %q", user)
 	}
 	command := defaultSearchCommand(user)
-	if command != "slacky search 'from:@andyhtran has:link'" {
+	if command != "slacky search 'from:@sampleuser has:link'" {
 		t.Fatalf("default search command = %q", command)
 	}
 }

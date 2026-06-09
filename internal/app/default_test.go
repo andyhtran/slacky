@@ -26,9 +26,9 @@ func TestDefaultNextLinesWhenAuthMissing(t *testing.T) {
 }
 
 func TestDefaultNextLinesWhenAuthReady(t *testing.T) {
-	text := strings.Join(defaultNextLines(true, "@andyhtran"), "\n")
+	text := strings.Join(defaultNextLines(true, "@sampleuser"), "\n")
 	for _, want := range []string{
-		"slacky search 'from:@andyhtran has:link'",
+		"slacky search 'from:@sampleuser has:link'",
 		"slacky channels",
 		"slacky history --channel general --count 25",
 	} {
@@ -77,14 +77,14 @@ func TestAuthenticatedUserLabelUsesCacheUserName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	if err := db.UpsertUser(api.UserResult{ID: "U123", Name: "andyhtran", RealName: "Andy"}); err != nil {
+	if err := db.UpsertUser(api.UserResult{ID: "U123", Name: "sampleuser", RealName: "Sample User"}); err != nil {
 		t.Fatalf("upsert user: %v", err)
 	}
 	if err := db.Close(); err != nil {
 		t.Fatalf("close store: %v", err)
 	}
 	label := authenticatedUserLabel(config.AuthStatus{ReadyForSlack: true, UserID: "U123"}, path)
-	if label != "@andyhtran" {
+	if label != "@sampleuser" {
 		t.Fatalf("auth user label = %q", label)
 	}
 }
@@ -102,10 +102,10 @@ func TestAuthStatusNextLinesWhenAuthMissing(t *testing.T) {
 }
 
 func TestAuthStatusNextLinesWhenAuthReady(t *testing.T) {
-	text := strings.Join(authStatusNextLines(true, "@andyhtran"), "\n")
+	text := strings.Join(authStatusNextLines(true, "@sampleuser"), "\n")
 	for _, want := range []string{
 		"slacky doctor",
-		"slacky search 'from:@andyhtran has:link'",
+		"slacky search 'from:@sampleuser has:link'",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("ready auth status next lines should contain %q\n%s", want, text)

@@ -107,6 +107,7 @@ Search options:
   --sort <score|timestamp>                 - Slack search sort
   --local                                  - Search only the local SQLite cache
   --group-by-thread                        - Return ranked threads instead of individual hits
+  --compact                                - Compact agent JSON for search/find
   --evidence                               - Show detailed per-result evidence and commands
   --verbose                                - Return full message text
   --include-rich-content                   - Include Slack blocks, attachments, and files where available

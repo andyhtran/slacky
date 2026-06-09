@@ -97,6 +97,7 @@ use slacky to find the launch thread and summarize the decision
 ```
 
 Agents should prefer `--json` for stable output and check `source` plus `cache_notice` before treating cached data as fresh.
+For search-heavy workflows, use `--json --compact` to get IDs, timestamps, excerpts, permalinks, and follow-up commands without rendered human text.
 
 ## Safety and storage
 
