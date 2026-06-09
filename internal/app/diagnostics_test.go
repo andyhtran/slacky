@@ -3,12 +3,17 @@ package app
 import (
 	"bytes"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/andyhtran/slacky/internal/api"
 	"github.com/andyhtran/slacky/internal/config"
+	"github.com/andyhtran/slacky/internal/paths"
 )
 
 func TestAuthLogoutDryRunKeepsAuthFile(t *testing.T) {
@@ -133,6 +138,72 @@ func TestAuthStatusShowsProfileCacheDB(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("auth status output missing %q\n%s", want, text)
 		}
+	}
+}
+
+func TestSlackReachabilityCanUseNonActiveAuthPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SLACKY_HOME", home)
+
+	activePath := filepath.Join(home, "slack.json")
+	otherPath := filepath.Join(home, "auth", "other.json")
+	if err := config.WriteAuth(activePath, config.Auth{UserToken: "xoxp-active"}); err != nil {
+		t.Fatalf("write active auth: %v", err)
+	}
+	if err := config.WriteAuth(otherPath, config.Auth{UserToken: "xoxp-other"}); err != nil {
+		t.Fatalf("write other auth: %v", err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if got := request.Header.Get("Authorization"); got != "Bearer xoxp-other" {
+			t.Fatalf("Authorization = %q, want non-active token", got)
+		}
+		_, _ = writer.Write([]byte(`{"ok":true,"team":"Sample Workspace","user":"sampleuser","team_id":"T123","user_id":"U123"}`))
+	}))
+	defer server.Close()
+
+	oldNewAPIClient := newAPIClient
+	newAPIClient = func(token string, version string, timeout time.Duration, maxRateLimitWait time.Duration) *api.Client {
+		client := api.NewClient(token, version, timeout, maxRateLimitWait)
+		client.BaseURL = server.URL + "/"
+		client.HTTPClient = server.Client()
+		return client
+	}
+	t.Cleanup(func() {
+		newAPIClient = oldNewAPIClient
+	})
+
+	pathSet, err := paths.Resolve()
+	if err != nil {
+		t.Fatalf("resolve paths: %v", err)
+	}
+	status := config.InspectAuth(otherPath)
+	reachability := slackReachability(&Globals{Timeout: time.Second}, pathSet, otherPath, status)
+	if !reachability.OK {
+		t.Fatalf("reachability should use non-active auth path: %#v", reachability)
+	}
+}
+
+func TestAuthExpiresInLabelShowsExpiredAgo(t *testing.T) {
+	status := config.AuthStatus{
+		ExpiresAtTime:     time.Now().Add(-2 * time.Minute),
+		Expired:           true,
+		ExpiredAgoSeconds: 120,
+	}
+	got := authExpiresInLabel(status)
+	if got != "expired 2m0s ago" {
+		t.Fatalf("auth expiry label = %q", got)
+	}
+}
+
+func TestAuthExpiresInLabelClampsHugeDurations(t *testing.T) {
+	status := config.AuthStatus{
+		ExpiresAtTime:    time.Now().Add(time.Hour),
+		ExpiresInSeconds: 10_000_000_000,
+	}
+	got := authExpiresInLabel(status)
+	if !strings.HasPrefix(got, ">=") {
+		t.Fatalf("huge expiry label = %q, want clamped label", got)
 	}
 }
 

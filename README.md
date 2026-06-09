@@ -2,6 +2,8 @@
 
 Read-only Slack search for fast context, built for people and agents. `slacky` helps you search messages, open the right thread, and pull surrounding Slack context into JSON or copyable terminal output.
 
+![slacky search and context](docs/demo.png)
+
 > Requires a Slack user token with read scopes. macOS and Linux.
 
 ## Install
@@ -58,7 +60,7 @@ Named profiles use separate SQLite caches by Slack workspace and user. Check the
 
 If `slacky auth status` shows `expires_at`, Slacky refreshes rotating OAuth credentials before live Slack API commands when possible. For explicit diagnosis, run `slacky auth refresh [--profile <name>]`.
 
-When Slack app installation is blocked but you can already access Slack in a browser, `auth import-session --wizard` can walk you through importing an advanced browser session using an `xoxc` token plus the Slack cookie named `d`. Use OAuth or user-token import when available.
+When Slack app installation is blocked but you can already access Slack in a browser, `auth import-session --wizard` can walk you through importing an advanced browser session using an `xoxc` token plus the Slack cookie named `d`. Use OAuth or user-token import when available. For browser-session troubleshooting, `--user-agent` or `SLACKY_BROWSER_USER_AGENT` can override the fallback browser User-Agent.
 
 ## Search Slack
 

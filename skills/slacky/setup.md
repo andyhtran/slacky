@@ -88,6 +88,8 @@ The wizard prints browser Developer Tools steps, then prompts with hidden input.
 slacky auth import-session --name work-browser --xoxc-env SLACKY_XOXC --xoxd-env SLACKY_XOXD
 ```
 
+If Slack rejects the default browser User-Agent for a browser-session profile, pass the current browser value with `--user-agent` or set `SLACKY_BROWSER_USER_AGENT` locally before import.
+
 If the user does not already have a token, create a Slack app from the bundled manifest:
 
 ```sh

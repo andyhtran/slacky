@@ -65,6 +65,7 @@ type AuthStatus struct {
 	ExpiresAt            string    `json:"expires_at,omitempty"`
 	ExpiresAtTime        time.Time `json:"-"`
 	ExpiresInSeconds     int64     `json:"expires_in_seconds,omitempty"`
+	ExpiredAgoSeconds    int64     `json:"expired_ago_seconds,omitempty"`
 	Expired              bool      `json:"expired"`
 	RefreshDue           bool      `json:"refresh_due"`
 	RefreshPossible      bool      `json:"refresh_possible"`
@@ -140,7 +141,18 @@ func (auth Auth) ExpiresInSeconds(now time.Time) int64 {
 	if auth.ExpiresAt.IsZero() {
 		return 0
 	}
-	return int64(auth.ExpiresAt.Sub(now).Round(time.Second) / time.Second)
+	remaining := int64(auth.ExpiresAt.Sub(now).Round(time.Second) / time.Second)
+	if remaining < 0 {
+		return 0
+	}
+	return remaining
+}
+
+func (auth Auth) ExpiredAgoSeconds(now time.Time) int64 {
+	if auth.ExpiresAt.IsZero() || now.Before(auth.ExpiresAt) {
+		return 0
+	}
+	return int64(now.Sub(auth.ExpiresAt).Round(time.Second) / time.Second)
 }
 
 func (auth Auth) MixedAuthFields() []string {
@@ -230,6 +242,7 @@ func InspectAuth(path string) AuthStatus {
 	}
 	now := time.Now()
 	status.ExpiresInSeconds = auth.ExpiresInSeconds(now)
+	status.ExpiredAgoSeconds = auth.ExpiredAgoSeconds(now)
 	status.Expired = auth.Expired(now)
 	status.RefreshPossible = auth.RefreshPossible()
 	status.RefreshDue = auth.RefreshDue(now, DefaultRefreshWindow)

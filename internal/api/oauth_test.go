@@ -39,10 +39,10 @@ func TestRefreshUserTokenPostsRefreshGrantWithoutClientSecret(t *testing.T) {
 	}))
 	defer server.Close()
 
-	oldURL := OAuthAccessURL
-	OAuthAccessURL = server.URL
+	oldURL := oauthAccessEndpoint
+	oauthAccessEndpoint = server.URL
 	t.Cleanup(func() {
-		OAuthAccessURL = oldURL
+		oauthAccessEndpoint = oldURL
 	})
 
 	token, err := RefreshUserToken(context.Background(), server.Client(), OAuthRefreshRequest{
@@ -80,10 +80,10 @@ func TestRefreshUserTokenIncludesClientSecretWhenPresent(t *testing.T) {
 	}))
 	defer server.Close()
 
-	oldURL := OAuthAccessURL
-	OAuthAccessURL = server.URL
+	oldURL := oauthAccessEndpoint
+	oauthAccessEndpoint = server.URL
 	t.Cleanup(func() {
-		OAuthAccessURL = oldURL
+		oauthAccessEndpoint = oldURL
 	})
 
 	if _, err := RefreshUserToken(context.Background(), server.Client(), OAuthRefreshRequest{
@@ -101,10 +101,10 @@ func TestRefreshUserTokenReturnsOAuthError(t *testing.T) {
 	}))
 	defer server.Close()
 
-	oldURL := OAuthAccessURL
-	OAuthAccessURL = server.URL
+	oldURL := oauthAccessEndpoint
+	oauthAccessEndpoint = server.URL
 	t.Cleanup(func() {
-		OAuthAccessURL = oldURL
+		oauthAccessEndpoint = oldURL
 	})
 
 	_, err := RefreshUserToken(context.Background(), server.Client(), OAuthRefreshRequest{

@@ -213,7 +213,7 @@ func (cmd *SearchCmd) Run(globals *Globals) error {
 				}()
 			}
 		}
-		client, err := slackClient(globals, pathSet.AuthFile.Path)
+		client, err := slackClient(globals, pathSet, pathSet.AuthFile.Path)
 		if err != nil {
 			return err
 		}
@@ -402,7 +402,7 @@ func (cmd *FindCmd) Run(globals *Globals) error {
 		}
 		return missingAuthError(pathSet.AuthFile.Path)
 	}
-	client, err := slackClient(globals, pathSet.AuthFile.Path)
+	client, err := slackClient(globals, pathSet, pathSet.AuthFile.Path)
 	if err != nil {
 		return err
 	}
@@ -853,7 +853,7 @@ func (cmd *ChannelsCmd) Run(globals *Globals) error {
 	if !authStatus.ReadyForSlack {
 		return missingAuthError(pathSet.AuthFile.Path)
 	}
-	client, err := slackClient(globals, pathSet.AuthFile.Path)
+	client, err := slackClient(globals, pathSet, pathSet.AuthFile.Path)
 	if err != nil {
 		return err
 	}
@@ -941,7 +941,7 @@ func resolveUser(globals *Globals, target string, refresh bool) error {
 	if !authStatus.ReadyForSlack {
 		return missingAuthError(pathSet.AuthFile.Path)
 	}
-	client, err := slackClient(globals, pathSet.AuthFile.Path)
+	client, err := slackClient(globals, pathSet, pathSet.AuthFile.Path)
 	if err != nil {
 		return err
 	}
@@ -1350,18 +1350,17 @@ func liveWorkflowClient(globals *Globals) (*api.Client, error) {
 	if !authStatus.ReadyForSlack {
 		return nil, missingAuthError(pathSet.AuthFile.Path)
 	}
-	client, err := slackClient(globals, pathSet.AuthFile.Path)
+	client, err := slackClient(globals, pathSet, pathSet.AuthFile.Path)
 	if err != nil {
 		return nil, err
 	}
 	return client, nil
 }
 
-func slackClient(globals *Globals, authPath string) (*api.Client, error) {
-	pathSet, pathErr := paths.Resolve()
+func slackClient(globals *Globals, pathSet paths.Set, authPath string) (*api.Client, error) {
 	var auth config.Auth
 	var err error
-	if pathErr == nil && authPath == pathSet.AuthFile.Path {
+	if authPath == pathSet.AuthFile.Path {
 		auth, err = refreshActiveAuthIfDue(globals, pathSet)
 	} else {
 		auth, err = config.LoadAuth(authPath)

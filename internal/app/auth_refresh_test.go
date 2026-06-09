@@ -182,6 +182,36 @@ func TestConcurrentRefreshUsesOneRefreshToken(t *testing.T) {
 	assertStoredRefreshToken(t, filepath.Join(home, "auth", "work.json"), "xoxp-new", "xoxr-new")
 }
 
+func TestSlackClientRefreshesActiveAuthWithResolvedPathSet(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SLACKY_HOME", home)
+	pathSet, err := paths.Resolve()
+	if err != nil {
+		t.Fatalf("resolve paths: %v", err)
+	}
+	if _, err := writeSelectedAuth(pathSet, "work", rotatingOAuthAuth(time.Now().Add(time.Minute))); err != nil {
+		t.Fatalf("write selected auth: %v", err)
+	}
+
+	calls := 0
+	restore := stubRefreshOAuthToken(t, func(context.Context, *http.Client, api.OAuthRefreshRequest, string) (api.OAuthToken, error) {
+		calls++
+		return refreshedOAuthToken(), nil
+	})
+	defer restore()
+
+	client, err := slackClient(&Globals{Timeout: time.Second}, pathSet, pathSet.AuthFile.Path)
+	if err != nil {
+		t.Fatalf("slack client: %v", err)
+	}
+	if client.Token != "xoxp-new" {
+		t.Fatalf("client token = %q, want refreshed token", client.Token)
+	}
+	if calls != 1 {
+		t.Fatalf("refresh calls = %d, want 1", calls)
+	}
+}
+
 func TestAuthStatusDoesNotLeakSecrets(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("SLACKY_HOME", home)

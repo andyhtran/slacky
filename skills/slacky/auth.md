@@ -99,6 +99,8 @@ slacky auth import-session --wizard --name work-browser
 
 Browser session import is for cases where the user can access Slack in a browser but cannot install a Slack app. The wizard walks the user through copying both an `xoxc-...` token from Slack web localStorage and the value of the browser cookie named `d`, usually starting with `xoxd-...`.
 
+If a browser-session import needs to mimic a specific browser more closely, use `--user-agent <value>` or set `SLACKY_BROWSER_USER_AGENT` before running the import command.
+
 Never ask the user to paste `xoxc`, `xoxd`, cookie values, OAuth tokens, OAuth callback URLs, or client secrets into chat, logs, issue trackers, or notes. Use hidden prompts or environment-variable import.
 
 ## Remove Profiles

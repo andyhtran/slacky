@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -13,6 +14,10 @@ import (
 )
 
 const defaultBrowserSessionUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+
+const browserSessionUserAgentEnv = "SLACKY_BROWSER_USER_AGENT"
+
+var newAPIClient = api.NewClient
 
 func activeProfileName(pathSet paths.Set) string {
 	if auth, err := config.LoadAuth(pathSet.AuthFile.Path); err == nil && auth.ProfileName != "" {
@@ -108,8 +113,18 @@ func browserSessionAuth(xoxc string, xoxd string, userAgent string) config.Auth 
 	}
 }
 
+func browserSessionUserAgent(flagValue string) (string, string) {
+	if value := strings.TrimSpace(flagValue); value != "" {
+		return value, "flag"
+	}
+	if value := strings.TrimSpace(os.Getenv(browserSessionUserAgentEnv)); value != "" {
+		return value, "env:" + browserSessionUserAgentEnv
+	}
+	return defaultBrowserSessionUserAgent, "default"
+}
+
 func apiClientFromAuth(globals *Globals, auth config.Auth) *api.Client {
-	client := api.NewClient(auth.UserToken, appVersion, globals.Timeout, globals.MaxRateLimitWait)
+	client := newAPIClient(auth.UserToken, appVersion, globals.Timeout, globals.MaxRateLimitWait)
 	if auth.SessionCookieD != "" {
 		client.SessionCookieD = auth.SessionCookieD
 	}

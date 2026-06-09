@@ -51,3 +51,23 @@ func TestAuthImportSessionHeadlessPrintsGuideWithoutWritingAuth(t *testing.T) {
 		t.Fatalf("headless wizard should not write auth, stat err = %v", err)
 	}
 }
+
+func TestBrowserSessionUserAgentPrecedence(t *testing.T) {
+	t.Setenv(browserSessionUserAgentEnv, "env-agent")
+
+	value, source := browserSessionUserAgent("flag-agent")
+	if value != "flag-agent" || source != "flag" {
+		t.Fatalf("flag user agent = %q %q", value, source)
+	}
+
+	value, source = browserSessionUserAgent("")
+	if value != "env-agent" || source != "env:"+browserSessionUserAgentEnv {
+		t.Fatalf("env user agent = %q %q", value, source)
+	}
+
+	t.Setenv(browserSessionUserAgentEnv, "")
+	value, source = browserSessionUserAgent("")
+	if value != defaultBrowserSessionUserAgent || source != "default" {
+		t.Fatalf("default user agent = %q %q", value, source)
+	}
+}

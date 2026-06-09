@@ -124,7 +124,7 @@ func (cmd *DoctorCmd) Run(globals *Globals) error {
 	}
 	authStatus := inspectAuthStatus(pathSet)
 	cacheStatus := store.Inspect(pathSet.CacheDB.Path)
-	reachability := slackReachability(globals, pathSet.AuthFile.Path, authStatus)
+	reachability := slackReachability(globals, pathSet, pathSet.AuthFile.Path, authStatus)
 	refreshOK := authRefreshDiagnosticOK(authStatus)
 	mixedFieldsOK := len(authStatus.MixedAuthFields) == 0
 
@@ -731,7 +731,7 @@ func existsLabel(ok bool) string {
 	return "missing"
 }
 
-func slackReachability(globals *Globals, authPath string, authStatus config.AuthStatus) SlackReachability {
+func slackReachability(globals *Globals, pathSet paths.Set, authPath string, authStatus config.AuthStatus) SlackReachability {
 	reachability := SlackReachability{
 		Method: "auth.test",
 	}
@@ -742,8 +742,7 @@ func slackReachability(globals *Globals, authPath string, authStatus config.Auth
 	}
 	var auth config.Auth
 	var err error
-	pathSet, pathErr := paths.Resolve()
-	if pathErr == nil && authPath == pathSet.AuthFile.Path {
+	if authPath == pathSet.AuthFile.Path {
 		auth, err = refreshActiveAuthIfDue(globals, pathSet)
 	} else {
 		auth, err = config.LoadAuth(authPath)
@@ -831,5 +830,19 @@ func authExpiresInLabel(status config.AuthStatus) string {
 	if status.ExpiresAtTime.IsZero() {
 		return "(none)"
 	}
-	return time.Duration(status.ExpiresInSeconds * int64(time.Second)).String()
+	if status.Expired {
+		return "expired " + durationSecondsLabel(status.ExpiredAgoSeconds) + " ago"
+	}
+	return durationSecondsLabel(status.ExpiresInSeconds)
+}
+
+func durationSecondsLabel(seconds int64) string {
+	const maxDurationSeconds = int64((1<<63 - 1) / 1_000_000_000)
+	if seconds < 0 {
+		seconds = 0
+	}
+	if seconds > maxDurationSeconds {
+		return ">=" + (time.Duration(maxDurationSeconds) * time.Second).String()
+	}
+	return (time.Duration(seconds) * time.Second).String()
 }

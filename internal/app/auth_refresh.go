@@ -34,6 +34,7 @@ type authRefreshResult struct {
 	SkippedReason        string    `json:"skipped_reason,omitempty"`
 	ExpiresAt            time.Time `json:"expires_at,omitempty"`
 	ExpiresInSeconds     int64     `json:"expires_in_seconds,omitempty"`
+	ExpiredAgoSeconds    int64     `json:"expired_ago_seconds,omitempty"`
 	Expired              bool      `json:"expired"`
 	RefreshDue           bool      `json:"refresh_due"`
 	RefreshPossible      bool      `json:"refresh_possible"`
@@ -357,6 +358,7 @@ func authRefreshResultFromAuth(profileName string, path string, active bool, aut
 		SkippedReason:        skippedReason,
 		ExpiresAt:            auth.ExpiresAt,
 		ExpiresInSeconds:     auth.ExpiresInSeconds(now),
+		ExpiredAgoSeconds:    auth.ExpiredAgoSeconds(now),
 		Expired:              auth.Expired(now),
 		RefreshDue:           auth.RefreshDue(now, config.DefaultRefreshWindow),
 		RefreshPossible:      auth.RefreshPossible(),

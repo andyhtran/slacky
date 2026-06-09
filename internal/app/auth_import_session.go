@@ -49,10 +49,7 @@ func (cmd *AuthImportSessionCmd) Run(globals *Globals) error {
 		return err
 	}
 
-	userAgent := strings.TrimSpace(cmd.UserAgent)
-	if userAgent == "" {
-		userAgent = defaultBrowserSessionUserAgent
-	}
+	userAgent, userAgentSource := browserSessionUserAgent(cmd.UserAgent)
 
 	profileName := strings.TrimSpace(cmd.Name)
 	auth := browserSessionAuth(xoxc, xoxd, userAgent)
@@ -81,6 +78,7 @@ func (cmd *AuthImportSessionCmd) Run(globals *Globals) error {
 	summary["xoxd_source"] = xoxdSource
 	summary["validation"] = validation
 	summary["has_browser_user_agent"] = auth.BrowserUserAgent != ""
+	summary["browser_user_agent_source"] = userAgentSource
 
 	text := strings.Join([]string{
 		"Browser session import complete",
@@ -166,6 +164,9 @@ func browserSessionWizardText(profileName string) string {
 		"",
 		"Non-interactive local testing:",
 		"  slacky auth import-session --name "+firstNonEmpty(strings.TrimSpace(profileName), "work-browser")+" --xoxc-env SLACKY_XOXC --xoxd-env SLACKY_XOXD",
+		"",
+		"User-Agent override:",
+		"  slacky auth import-session --wizard --name "+firstNonEmpty(strings.TrimSpace(profileName), "work-browser")+" --user-agent \"$SLACKY_BROWSER_USER_AGENT\"",
 	)
 	return strings.Join(lines, "\n")
 }
@@ -209,6 +210,7 @@ func browserSessionWizardPlan(profileName string) map[string]any {
 		"interactive_command": browserSessionWizardCommand(profileName),
 		"token_snippet":       browserSessionTokenSnippet,
 		"required_values":     []string{"xoxc browser token", "Slack cookie named d"},
+		"user_agent_env":      browserSessionUserAgentEnv,
 	}
 }
 

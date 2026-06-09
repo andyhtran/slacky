@@ -13,11 +13,13 @@ import (
 	"time"
 )
 
-var (
+const (
 	UserAuthorizeURL = "https://slack.com/oauth/v2_user/authorize"
 	UserAccessURL    = "https://slack.com/api/oauth.v2.user.access"
 	OAuthAccessURL   = "https://slack.com/api/oauth.v2.access"
 )
+
+var oauthAccessEndpoint = OAuthAccessURL
 
 type PKCEPair struct {
 	Verifier  string
@@ -106,7 +108,7 @@ func RefreshUserToken(ctx context.Context, client *http.Client, request OAuthRef
 	}
 	form.Set("refresh_token", request.RefreshToken)
 	form.Set("grant_type", "refresh_token")
-	return postOAuthForm(ctx, client, OAuthAccessURL, form, userAgent)
+	return postOAuthForm(ctx, client, oauthAccessEndpoint, form, userAgent)
 }
 
 func postOAuthForm(ctx context.Context, client *http.Client, endpoint string, form url.Values, userAgent string) (OAuthToken, error) {
