@@ -1,54 +1,57 @@
 ---
 name: slacky-auth
-description: Use when switching Slacky auth profiles, choosing an auth method, importing browser-session auth, or diagnosing which Slack account/workspace is active.
+description: Use when choosing a Slacky auth method, importing credentials, switching profiles, refreshing auth, or diagnosing the active Slack account/workspace.
 ---
 
 # Slacky Auth
 
-Use this guide when the task is about Slacky authentication, switching accounts or workspaces, importing credentials, or verifying which Slack identity is active.
+Use this guide for ongoing authentication: choose a method, add or switch profiles, refresh credentials, remove local auth, and verify which Slack identity is active. For first install or Slack app creation, use `slacky skills get setup`; for search/context tasks, use `slacky skills get core`.
 
-For ordinary Slack search/context tasks, start with:
+## Choose A Method
+
+Prefer OAuth app login when the user can create or install a Slack app. Use setup for first-run app creation, then login with the Client ID:
 
 ```sh
-slacky skills get core
+slacky auth login --name work --client-id <client-id>
 ```
 
-## Check Active Auth
-
-Start with a redacted status and profile list:
+Use token import when the user already has a scoped Slack user token. The interactive prompt hides input; env import is for local non-interactive setup:
 
 ```sh
-slacky auth status --json
+slacky auth import --name work-token
+slacky auth import --name work-token --token-env SLACKY_USER_TOKEN
+```
+
+Use browser-session import only when app installation is blocked and the user explicitly wants to use an existing Slack web session:
+
+```sh
+slacky auth import-session --wizard --name work-browser
+```
+
+The wizard is the safe default because this method needs both a Slack web `xoxc-...` token and the browser cookie named `d`, usually `xoxd-...`.
+
+Never ask the user to paste `xoxc`, `xoxd`, cookie values, OAuth tokens, OAuth callback URLs, or client secrets into chat, logs, issue trackers, or notes. Use hidden prompts or local environment-variable import.
+
+## Check And Switch
+
+Start with redacted status and profile inventory, then switch by exact profile name:
+
+```sh
+slacky auth status --active --json
 slacky auth list --json
-```
-
-Use `auth status` to confirm readiness, auth kind, token type, team, user, expiry, refresh state, mixed auth fields, and the active cache DB. Use `auth list` to see saved profile names and which one is active.
-
-## Switch Profiles
-
-Switch by profile name:
-
-```sh
 slacky auth switch work
-slacky auth status
-```
-
-After switching, run a small read-only check before continuing the user's search:
-
-```sh
+slacky auth status --active
 slacky doctor
 slacky search "has:link" --count 3
 ```
 
-## Refresh Expiring OAuth
+Use status to confirm readiness, source/storage labels, auth kind, token type, scopes, team, user, expiry, refresh state, mixed auth fields, and the active cache DB. Named profiles isolate caches by profile, Slack team, and Slack user.
 
-After OAuth login, always inspect status:
+If a command fails with `auth_profile_not_found`, run `slacky auth list` and switch using the exact name.
 
-```sh
-slacky auth status --json
-```
+## Refresh And Cache
 
-If `expires_at` is present, the profile uses rotating OAuth credentials. Slacky refreshes due tokens before live Slack API commands when `refresh_possible` is true. For diagnosis or recovery, run:
+If `expires_at` is present, the profile uses rotating OAuth credentials. Slacky refreshes due tokens before live Slack API commands when `refresh_possible` is true.
 
 ```sh
 slacky auth refresh
@@ -56,73 +59,27 @@ slacky auth refresh --profile work
 slacky auth refresh --profile work --force --json
 ```
 
-If refresh fails with `invalid_refresh_token`, run OAuth login again for that profile:
+If refresh fails with `invalid_refresh_token`, run `slacky auth login --name work --client-id <client-id>` again for that profile.
 
-```sh
-slacky auth login --name work --client-id <client-id>
-```
-
-Named profiles use separate caches by profile, Slack team, and Slack user. To inspect or clear one cache without switching:
+Inspect, prune, or clear one profile's cache without switching profiles:
 
 ```sh
 slacky cache status --profile work
+slacky cache prune --profile work --older-than 90 --dry-run
 slacky cache clear --profile work --dry-run
 ```
 
-If a command fails with `auth_profile_not_found`, list profiles and switch using an exact name:
+Use `--dry-run` first before deleting cache data.
 
-```sh
-slacky auth list
-slacky auth switch <name>
-```
+## Browser Session And Logout
 
-## Add Profiles
+If Slack rejects the default browser User-Agent for a browser-session profile, import again with `slacky auth import-session --wizard --name work-browser --user-agent "$SLACKY_BROWSER_USER_AGENT"`. Set `SLACKY_BROWSER_USER_AGENT` locally; do not record browser-session secrets in notes or issue trackers.
 
-OAuth app flow:
-
-```sh
-slacky auth login --name work --client-id <client-id>
-```
-
-Existing Slack user token:
-
-```sh
-slacky auth import --name work-token
-slacky auth import --name work-token --token-env SLACKY_USER_TOKEN
-```
-
-Browser session fallback:
-
-```sh
-slacky auth import-session --wizard --name work-browser
-```
-
-Browser session import is for cases where the user can access Slack in a browser but cannot install a Slack app. The wizard walks the user through copying both an `xoxc-...` token from Slack web localStorage and the value of the browser cookie named `d`, usually starting with `xoxd-...`.
-
-If a browser-session import needs to mimic a specific browser more closely, use `--user-agent <value>` or set `SLACKY_BROWSER_USER_AGENT` before running the import command.
-
-Never ask the user to paste `xoxc`, `xoxd`, cookie values, OAuth tokens, OAuth callback URLs, or client secrets into chat, logs, issue trackers, or notes. Use hidden prompts or environment-variable import.
-
-## Remove Profiles
-
-Remove a named local profile:
+Remove a named local profile or the active local auth file:
 
 ```sh
 slacky auth logout --name work-browser
-```
-
-Remove the active local auth file:
-
-```sh
 slacky auth logout
 ```
 
-Logout removes local Slacky auth storage only. It does not revoke a Slack OAuth token server-side and does not log out the user's browser session.
-
-## Choosing A Method
-
-Prefer OAuth app login when the user can create/install a Slack app. It is scoped and easiest to reason about.
-
-Use `auth import` when the user already has a scoped Slack user token.
-
-Use `auth import-session --wizard` only as an advanced fallback when app installation is blocked and the user explicitly wants to use their existing browser session.
+Logout removes only Slacky's local auth storage. It does not revoke a Slack OAuth token server-side and does not log out the user's browser session.

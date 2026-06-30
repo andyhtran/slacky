@@ -37,42 +37,71 @@ type Auth struct {
 	RefreshToken     string    `json:"refresh_token,omitempty"`
 }
 
+type AuthStorageStatus struct {
+	Kind                 string `json:"kind"`
+	Path                 string `json:"path,omitempty"`
+	Mode                 string `json:"mode,omitempty"`
+	DirMode              string `json:"dir_mode,omitempty"`
+	SecretValuesRedacted bool   `json:"secret_values_redacted"`
+}
+
+type AuthTokenStatus struct {
+	Present              bool   `json:"present"`
+	State                string `json:"state"`
+	ExpiresAt            string `json:"expires_at,omitempty"`
+	ExpiresInSeconds     int64  `json:"expires_in_seconds,omitempty"`
+	ExpiredAgoSeconds    int64  `json:"expired_ago_seconds,omitempty"`
+	Expired              bool   `json:"expired"`
+	RefreshDue           bool   `json:"refresh_due"`
+	RefreshPossible      bool   `json:"refresh_possible"`
+	RefreshWindowSeconds int64  `json:"refresh_window_seconds,omitempty"`
+	NeedsReauth          bool   `json:"needs_reauth"`
+}
+
 type AuthStatus struct {
-	Path                 string    `json:"path"`
-	Exists               bool      `json:"exists"`
-	Readable             bool      `json:"readable"`
-	ReadyForSlack        bool      `json:"ready_for_slack"`
-	FileMode             string    `json:"file_mode,omitempty"`
-	DirMode              string    `json:"dir_mode,omitempty"`
-	PresentFields        []string  `json:"present_fields,omitempty"`
-	MissingFields        []string  `json:"missing_fields,omitempty"`
-	HasClientID          bool      `json:"has_client_id"`
-	HasClientSecret      bool      `json:"has_client_secret"`
-	HasRedirectURI       bool      `json:"has_redirect_uri"`
-	HasUserToken         bool      `json:"has_user_token"`
-	HasSessionCookie     bool      `json:"has_session_cookie"`
-	HasBrowserUA         bool      `json:"has_browser_user_agent"`
-	HasRefreshToken      bool      `json:"has_refresh_token"`
-	ProfileName          string    `json:"profile_name,omitempty"`
-	AuthKind             string    `json:"auth_kind,omitempty"`
-	CacheDBPath          string    `json:"cache_db_path,omitempty"`
-	TokenType            string    `json:"token_type,omitempty"`
-	TeamID               string    `json:"team_id,omitempty"`
-	TeamName             string    `json:"team_name,omitempty"`
-	UserID               string    `json:"user_id,omitempty"`
-	UserName             string    `json:"user_name,omitempty"`
-	Scopes               []string  `json:"scopes,omitempty"`
-	ExpiresAt            string    `json:"expires_at,omitempty"`
-	ExpiresAtTime        time.Time `json:"-"`
-	ExpiresInSeconds     int64     `json:"expires_in_seconds,omitempty"`
-	ExpiredAgoSeconds    int64     `json:"expired_ago_seconds,omitempty"`
-	Expired              bool      `json:"expired"`
-	RefreshDue           bool      `json:"refresh_due"`
-	RefreshPossible      bool      `json:"refresh_possible"`
-	RefreshWindowSeconds int64     `json:"refresh_window_seconds,omitempty"`
-	MixedAuthFields      []string  `json:"mixed_auth_fields,omitempty"`
-	RecoveryCommands     []string  `json:"recovery_commands,omitempty"`
-	Error                string    `json:"error,omitempty"`
+	Path                 string            `json:"path"`
+	Exists               bool              `json:"exists"`
+	Readable             bool              `json:"readable"`
+	ReadyForSlack        bool              `json:"ready_for_slack"`
+	Active               bool              `json:"active"`
+	ActiveOnly           bool              `json:"active_only,omitempty"`
+	ActiveProfileName    string            `json:"active_profile_name,omitempty"`
+	Source               string            `json:"source"`
+	SelectedBy           string            `json:"selected_by"`
+	CredentialSource     string            `json:"credential_source"`
+	Storage              AuthStorageStatus `json:"storage"`
+	Token                AuthTokenStatus   `json:"token"`
+	FileMode             string            `json:"file_mode,omitempty"`
+	DirMode              string            `json:"dir_mode,omitempty"`
+	PresentFields        []string          `json:"present_fields,omitempty"`
+	MissingFields        []string          `json:"missing_fields,omitempty"`
+	HasClientID          bool              `json:"has_client_id"`
+	HasClientSecret      bool              `json:"has_client_secret"`
+	HasRedirectURI       bool              `json:"has_redirect_uri"`
+	HasUserToken         bool              `json:"has_user_token"`
+	HasSessionCookie     bool              `json:"has_session_cookie"`
+	HasBrowserUA         bool              `json:"has_browser_user_agent"`
+	HasRefreshToken      bool              `json:"has_refresh_token"`
+	ProfileName          string            `json:"profile_name,omitempty"`
+	AuthKind             string            `json:"auth_kind,omitempty"`
+	CacheDBPath          string            `json:"cache_db_path,omitempty"`
+	TokenType            string            `json:"token_type,omitempty"`
+	TeamID               string            `json:"team_id,omitempty"`
+	TeamName             string            `json:"team_name,omitempty"`
+	UserID               string            `json:"user_id,omitempty"`
+	UserName             string            `json:"user_name,omitempty"`
+	Scopes               []string          `json:"scopes,omitempty"`
+	ExpiresAt            string            `json:"expires_at,omitempty"`
+	ExpiresAtTime        time.Time         `json:"-"`
+	ExpiresInSeconds     int64             `json:"expires_in_seconds,omitempty"`
+	ExpiredAgoSeconds    int64             `json:"expired_ago_seconds,omitempty"`
+	Expired              bool              `json:"expired"`
+	RefreshDue           bool              `json:"refresh_due"`
+	RefreshPossible      bool              `json:"refresh_possible"`
+	RefreshWindowSeconds int64             `json:"refresh_window_seconds,omitempty"`
+	MixedAuthFields      []string          `json:"mixed_auth_fields,omitempty"`
+	RecoveryCommands     []string          `json:"recovery_commands,omitempty"`
+	Error                string            `json:"error,omitempty"`
 }
 
 var ErrMissingAuth = errors.New("missing Slack auth file")
@@ -186,7 +215,12 @@ func (auth Auth) MixedAuthFields() []string {
 
 func InspectAuth(path string) AuthStatus {
 	status := AuthStatus{
-		Path: path,
+		Path:             path,
+		Source:           "missing",
+		SelectedBy:       "missing",
+		CredentialSource: "missing",
+		Storage:          authStorageStatus("missing", path, "", ""),
+		Token:            AuthTokenStatus{State: "missing", NeedsReauth: true},
 		RecoveryCommands: []string{
 			"slacky setup wizard",
 			"slacky setup steps",
@@ -200,6 +234,7 @@ func InspectAuth(path string) AuthStatus {
 
 	if dirInfo, err := os.Stat(filepath.Dir(path)); err == nil {
 		status.DirMode = dirInfo.Mode().Perm().String()
+		status.Storage.DirMode = status.DirMode
 	}
 
 	info, err := os.Stat(path)
@@ -213,6 +248,9 @@ func InspectAuth(path string) AuthStatus {
 	}
 	status.Exists = true
 	status.FileMode = info.Mode().Perm().String()
+	status.Source = "local_file"
+	status.SelectedBy = "local_auth_file"
+	status.Storage = authStorageStatus("local_file", path, status.FileMode, status.DirMode)
 
 	auth, err := LoadAuth(path)
 	if err != nil {
@@ -236,6 +274,11 @@ func InspectAuth(path string) AuthStatus {
 	status.UserName = auth.UserName
 	status.Scopes = append([]string(nil), auth.Scopes...)
 	status.ReadyForSlack = auth.ReadyForSlack()
+	status.CredentialSource = authCredentialSource(auth)
+	if auth.ProfileName != "" {
+		status.Source = "profile"
+		status.SelectedBy = "active_profile"
+	}
 	status.ExpiresAtTime = auth.ExpiresAt
 	if !auth.ExpiresAt.IsZero() {
 		status.ExpiresAt = auth.ExpiresAt.Format(time.RFC3339)
@@ -248,6 +291,7 @@ func InspectAuth(path string) AuthStatus {
 	status.RefreshDue = auth.RefreshDue(now, DefaultRefreshWindow)
 	status.RefreshWindowSeconds = int64(DefaultRefreshWindow / time.Second)
 	status.MixedAuthFields = auth.MixedAuthFields()
+	status.Token = authTokenStatus(auth, status, now)
 
 	addField := func(name string, present bool) {
 		if present {
@@ -265,6 +309,58 @@ func InspectAuth(path string) AuthStatus {
 	}
 
 	return status
+}
+
+func authStorageStatus(kind string, path string, mode string, dirMode string) AuthStorageStatus {
+	return AuthStorageStatus{
+		Kind:                 kind,
+		Path:                 path,
+		Mode:                 mode,
+		DirMode:              dirMode,
+		SecretValuesRedacted: true,
+	}
+}
+
+func authCredentialSource(auth Auth) string {
+	if !auth.ReadyForSlack() {
+		return "missing"
+	}
+	if auth.IsBrowserSession() {
+		return "browser_session"
+	}
+	return "local_file"
+}
+
+func authTokenStatus(auth Auth, status AuthStatus, now time.Time) AuthTokenStatus {
+	token := AuthTokenStatus{
+		Present:              status.HasUserToken,
+		ExpiresAt:            status.ExpiresAt,
+		ExpiresInSeconds:     status.ExpiresInSeconds,
+		ExpiredAgoSeconds:    status.ExpiredAgoSeconds,
+		Expired:              status.Expired,
+		RefreshDue:           status.RefreshDue,
+		RefreshPossible:      status.RefreshPossible,
+		RefreshWindowSeconds: status.RefreshWindowSeconds,
+	}
+	switch {
+	case !status.HasUserToken:
+		token.State = "missing"
+		token.NeedsReauth = true
+	case auth.IsBrowserSession() && !status.HasSessionCookie:
+		token.State = "incomplete"
+		token.NeedsReauth = true
+	case auth.Expired(now):
+		token.State = "expired"
+		token.NeedsReauth = !auth.RefreshPossible()
+	case auth.RefreshDue(now, DefaultRefreshWindow):
+		token.State = "refresh_due"
+	case auth.ReadyForSlack():
+		token.State = "ready"
+	default:
+		token.State = "incomplete"
+		token.NeedsReauth = true
+	}
+	return token
 }
 
 func WriteAuth(path string, auth Auth) error {

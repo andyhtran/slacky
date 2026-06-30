@@ -10,6 +10,7 @@ import (
 
 	"github.com/andyhtran/slacky/internal/api"
 	"github.com/andyhtran/slacky/internal/config"
+	"github.com/andyhtran/slacky/internal/output"
 	"github.com/andyhtran/slacky/internal/paths"
 	"github.com/andyhtran/slacky/internal/store"
 )
@@ -21,6 +22,7 @@ type PathsCmd struct{}
 type CacheCmd struct {
 	Default CacheStatusCmd `cmd:"" default:"noargs" hidden:""`
 	Status  CacheStatusCmd `cmd:"" help:"Show cache status"`
+	Prune   CachePruneCmd  `cmd:"" help:"Preview or remove old cached messages"`
 	Clear   CacheClearCmd  `cmd:"" help:"Clear cache database files"`
 }
 
@@ -45,7 +47,9 @@ type AuthSwitchCmd struct {
 	Name string `arg:"" help:"Auth profile name"`
 }
 
-type AuthStatusCmd struct{}
+type AuthStatusCmd struct {
+	Active bool `help:"Show only the active auth profile (default status scope)" name:"active"`
+}
 
 type AuthRefreshCmd struct {
 	Profile string `help:"Refresh a named auth profile instead of the active auth" name:"profile"`
@@ -101,6 +105,13 @@ type CacheClearCmd struct {
 	Profile string `help:"Clear cache for a named auth profile instead of the active auth" name:"profile"`
 	DryRun  bool   `help:"Preview cache files without removing them" name:"dry-run"`
 	Apply   bool   `help:"Actually remove cache files" name:"apply"`
+}
+
+type CachePruneCmd struct {
+	Profile   string `help:"Prune cache for a named auth profile instead of the active auth" name:"profile"`
+	OlderThan int    `help:"Delete messages last cached more than this many days ago" default:"30" name:"older-than"`
+	DryRun    bool   `help:"Preview old cache rows without removing them" name:"dry-run"`
+	Apply     bool   `help:"Actually remove old cache rows" name:"apply"`
 }
 
 type SlackReachability struct {
@@ -217,6 +228,7 @@ func (cmd *CacheStatusCmd) Run(globals *Globals) error {
 		"",
 		"Next:",
 		"  slacky search --local \"release notes\"",
+		"  slacky cache prune --older-than 90 --dry-run",
 		"  slacky history --channel general --refresh",
 	}, "\n")
 	return writeEnvelope(globals, Envelope{
@@ -226,6 +238,48 @@ func (cmd *CacheStatusCmd) Run(globals *Globals) error {
 		Cache:   cacheStatus,
 		Results: cacheTargetPayload(target),
 	})
+}
+
+func (cmd *CachePruneCmd) Run(globals *Globals) error {
+	if cmd.Apply && cmd.DryRun {
+		return appError("invalid_cache_prune_flags", "use either --dry-run or --apply, not both")
+	}
+	if cmd.OlderThan <= 0 {
+		return appError("invalid_cache_prune_age", "--older-than must be greater than 0 days")
+	}
+	pathSet, err := paths.Resolve()
+	if err != nil {
+		return err
+	}
+	target, err := cacheTargetForProfile(pathSet, cmd.Profile)
+	if err != nil {
+		return err
+	}
+	cutoff := time.Now().UTC().AddDate(0, 0, -cmd.OlderThan)
+	cacheStatus := store.Inspect(target.Path)
+	if !cacheStatus.Exists {
+		result := store.PruneResult{Cutoff: cutoff.UTC().Format("2006-01-02 15:04:05"), DryRun: !cmd.Apply}
+		return writeEnvelope(globals, cachePruneEnvelope(target, result, cacheStatus, cmd.OlderThan, !cmd.Apply))
+	}
+	var cacheDB *store.DB
+	if cmd.Apply {
+		cacheDB, err = store.Open(target.Path)
+	} else {
+		cacheDB, err = store.OpenReadOnly(target.Path)
+	}
+	if err != nil {
+		return err
+	}
+	result, err := cacheDB.PruneMessagesBefore(cutoff, !cmd.Apply)
+	closeErr := cacheDB.Close()
+	if err != nil {
+		return err
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	cacheStatus = store.Inspect(target.Path)
+	return writeEnvelope(globals, cachePruneEnvelope(target, result, cacheStatus, cmd.OlderThan, !cmd.Apply))
 }
 
 func (cmd *CacheClearCmd) Run(globals *Globals) error {
@@ -307,41 +361,90 @@ func (cmd *AuthListCmd) Run(globals *Globals) error {
 	if err != nil {
 		return err
 	}
+	if profiles == nil {
+		profiles = []config.AuthProfileSummary{}
+	}
+	localStatus := inspectAuthStatus(pathSet)
 
 	lines := []string{
 		"Auth profiles",
 		"",
 		fmt.Sprintf("Active: %s", blank(firstNonEmpty(activeName, "local"))),
+		"  ACTIVE  NAME   STATUS  TEAM  USER  SOURCE  STORAGE",
 	}
 	if len(profiles) == 0 {
-		authStatus := inspectAuthStatus(pathSet)
-		if authStatus.ReadyForSlack {
-			lines = append(lines, fmt.Sprintf("%s local %s %s %s", profileLinePrefix(true), blank(authStatus.TokenType), blank(authStatus.TeamName), authDisplayLabel(authStatus.UserID, authStatus.UserName)))
+		if localStatus.ReadyForSlack {
+			lines = append(lines, authListLocalLine(localStatus))
 		} else {
-			lines = append(lines, "(no named profiles)")
+			lines = append(lines, "  (no auth profiles found)")
 		}
 	} else {
 		for index := range profiles {
-			profile := &profiles[index]
-			lines = append(lines, fmt.Sprintf(
-				"%s %s %s %s %s",
-				profileLinePrefix(profile.Active),
-				profile.Name,
-				blank(profile.TokenType),
-				blank(profile.TeamName),
-				authDisplayLabel(profile.UserID, profile.UserName),
-			))
+			lines = append(lines, authListProfileLine(profiles[index]))
 		}
 	}
-	lines = append(lines, "", "Next:", "  slacky auth switch <name>", "  slacky auth status")
+	lines = append(lines, "", output.Dim("Next:"), output.Cyan("  slacky auth switch <name>"), output.Cyan("  slacky auth status --active"))
 	return writeEnvelope(globals, Envelope{
 		OK:   true,
 		Text: strings.Join(lines, "\n"),
 		Auth: map[string]any{
 			"active_profile": activeName,
+			"local":          authListLocalPayload(localStatus),
 			"profiles":       profiles,
 		},
 	})
+}
+
+func authListProfileLine(profile config.AuthProfileSummary) string {
+	return fmt.Sprintf(
+		"  %-6s  %-5s  %-6s  %-4s  %-4s  %-6s  %s",
+		profileLinePrefix(profile.Active),
+		profile.Name,
+		authListStatusLabel(profile.ReadyForSlack, profile.Token.State),
+		blank(profile.TeamName),
+		authDisplayLabel(profile.UserID, profile.UserName),
+		blank(profile.CredentialSource),
+		blank(profile.Storage.Kind),
+	)
+}
+
+func authListLocalLine(status config.AuthStatus) string {
+	return fmt.Sprintf(
+		"  %-6s  %-5s  %-6s  %-4s  %-4s  %-6s  %s",
+		profileLinePrefix(true),
+		"local",
+		authListStatusLabel(status.ReadyForSlack, status.Token.State),
+		blank(status.TeamName),
+		authDisplayLabel(status.UserID, status.UserName),
+		blank(status.CredentialSource),
+		blank(status.Storage.Kind),
+	)
+}
+
+func authListStatusLabel(ready bool, tokenState string) string {
+	if !ready {
+		return "missing"
+	}
+	if tokenState == "" {
+		return "ready"
+	}
+	return tokenState
+}
+
+func authListLocalPayload(status config.AuthStatus) map[string]any {
+	return map[string]any{
+		"name":              "local",
+		"active":            status.Exists && status.ProfileName == "",
+		"ready_for_slack":   status.ReadyForSlack,
+		"source":            status.Source,
+		"credential_source": status.CredentialSource,
+		"storage":           status.Storage,
+		"token":             status.Token,
+		"team_id":           status.TeamID,
+		"team_name":         status.TeamName,
+		"user_id":           status.UserID,
+		"user_name":         status.UserName,
+	}
 }
 
 func (cmd *AuthSwitchCmd) Run(globals *Globals) error {
@@ -391,53 +494,151 @@ func (cmd *AuthStatusCmd) Run(globals *Globals) error {
 		return err
 	}
 	authStatus := inspectAuthStatus(pathSet)
+	authStatus.ActiveOnly = cmd.Active
 	authUser := authenticatedUserLabel(authStatus, pathSet.CacheDB.Path)
-	lines := make([]string, 0, 12)
-	lines = append(
-		lines,
-		"Auth",
-		"",
-		fmt.Sprintf("File: %s", authStatus.Path),
-		fmt.Sprintf("Profile: %s", blank(authStatus.ProfileName)),
-		fmt.Sprintf("Ready for Slack: %t", authStatus.ReadyForSlack),
-		fmt.Sprintf("Auth kind: %s", blank(authStatus.AuthKind)),
-		fmt.Sprintf("Token type: %s", blank(authStatus.TokenType)),
-		fmt.Sprintf("Team: %s", authTeamLabel(authStatus.TeamName, authStatus.TeamID)),
-		fmt.Sprintf("User: %s", authDisplayLabel(authStatus.UserID, strings.TrimPrefix(authUser, "@"))),
-		fmt.Sprintf("Expires at: %s", authExpiryLabel(authStatus.ExpiresAtTime)),
-		fmt.Sprintf("Expires in: %s", authExpiresInLabel(authStatus)),
-		fmt.Sprintf("Refresh possible: %t", authStatus.RefreshPossible),
-		fmt.Sprintf("Refresh due: %t", authStatus.RefreshDue),
-		fmt.Sprintf("Mixed auth fields: %s", authMixedFieldsLabel(authStatus.MixedAuthFields)),
-		fmt.Sprintf("Cache DB: %s", authStatus.CacheDBPath),
-		"",
-	)
-	lines = append(lines, authStatusNextLines(authStatus, authUser)...)
-	text := strings.Join(lines, "\n")
 	return writeEnvelope(globals, Envelope{
 		OK:   true,
-		Text: text,
+		Text: authStatusText(authStatus, authUser),
 		Auth: authStatus,
 	})
+}
+
+func authStatusText(status config.AuthStatus, authUser string) string {
+	lines := make([]string, 0, 24)
+	lines = append(
+		lines,
+		output.Bold("Auth"),
+		"",
+		authStatusRow("Status", authStatusHealthLabel(status)),
+		authStatusRow("Source", authSelectedSourceLabel(status)),
+		authStatusRow("Profile", authProfileStatusLabel(status)),
+		authStatusRow("Team", authTeamLabel(status.TeamName, status.TeamID)),
+		authStatusRow("User", authDisplayLabel(status.UserID, strings.TrimPrefix(authUser, "@"))),
+		authStatusRow("Credential", blank(status.CredentialSource)),
+		authStatusRow("Storage", authStorageLabel(status.Storage)),
+		authStatusRow("Auth kind", blank(status.AuthKind)),
+		authStatusRow("Token type", blank(status.TokenType)),
+		authStatusRow("Scopes", authScopesLabel(status.Scopes)),
+		authStatusRow("Token", authTokenLabel(status)),
+		authStatusRow("Expires at", authExpiryLabel(status.ExpiresAtTime)),
+		authStatusRow("Expires in", authExpiresInLabel(status)),
+		authStatusRow("Refresh", authRefreshStatusLabel(status)),
+		authStatusRow("Mixed auth fields", authMixedFieldsLabel(status.MixedAuthFields)),
+		authStatusRow("File", status.Path),
+		authStatusRow("Cache DB", status.CacheDBPath),
+		"",
+	)
+	lines = append(lines, authStatusNextLines(status, authUser)...)
+	return strings.Join(lines, "\n")
+}
+
+func authStatusRow(label string, value string) string {
+	return fmt.Sprintf("  %s: %s", output.Dim(label), value)
+}
+
+func authStatusHealthLabel(status config.AuthStatus) string {
+	if !status.ReadyForSlack {
+		return output.Red("missing")
+	}
+	if status.Expired && !status.RefreshPossible {
+		return output.Red("expired")
+	}
+	if status.Expired {
+		return output.Yellow("expired; refresh available")
+	}
+	if status.RefreshDue {
+		return output.Yellow("refresh due")
+	}
+	if len(status.MixedAuthFields) > 0 {
+		return output.Yellow("ready with mixed fields")
+	}
+	return output.Green("ready")
+}
+
+func authSelectedSourceLabel(status config.AuthStatus) string {
+	selectedBy := blank(status.SelectedBy)
+	if status.Source == "" {
+		return selectedBy
+	}
+	return fmt.Sprintf("%s (%s)", status.Source, selectedBy)
+}
+
+func authProfileStatusLabel(status config.AuthStatus) string {
+	profile := blank(status.ProfileName)
+	if status.ProfileName != "" && status.Active {
+		return profile + " (active)"
+	}
+	if status.ProfileName == "" && status.Active && status.Exists {
+		return profile + " (active local)"
+	}
+	return profile
+}
+
+func authStorageLabel(storage config.AuthStorageStatus) string {
+	parts := []string{blank(storage.Kind)}
+	if storage.Mode != "" {
+		parts = append(parts, storage.Mode)
+	}
+	if storage.Path != "" {
+		parts = append(parts, storage.Path)
+	}
+	return strings.Join(parts, ", ")
+}
+
+func authScopesLabel(scopes []string) string {
+	if len(scopes) == 0 {
+		return "none recorded"
+	}
+	return strings.Join(scopes, ", ")
+}
+
+func authTokenLabel(status config.AuthStatus) string {
+	state := status.Token.State
+	if state == "" {
+		state = "unknown"
+	}
+	if status.Token.NeedsReauth {
+		return output.Red(state)
+	}
+	if status.RefreshDue || status.Expired {
+		return output.Yellow(state)
+	}
+	if state == "ready" {
+		return output.Green(state)
+	}
+	return state
+}
+
+func authRefreshStatusLabel(status config.AuthStatus) string {
+	if !status.RefreshPossible {
+		return "unavailable"
+	}
+	if status.Expired {
+		return "available; token expired"
+	}
+	if status.RefreshDue {
+		return "available; due now"
+	}
+	return "available; not due"
 }
 
 func authStatusNextLines(status config.AuthStatus, authUser string) []string {
 	if !status.ReadyForSlack {
 		return []string{
-			"Next:",
-			"  slacky setup wizard",
-			"  slacky auth import",
+			output.Dim("Next:"),
+			output.Cyan("  slacky setup wizard"),
+			output.Cyan("  slacky auth import"),
 		}
 	}
 	lines := []string{
-		"Next:",
-		"  slacky doctor",
-		"  slacky auth list",
+		output.Dim("Next:"),
+		output.Cyan("  slacky doctor"),
+		output.Cyan("  slacky auth list"),
 	}
 	if status.RefreshDue || status.Expired {
-		lines = append(lines, "  slacky auth refresh")
+		lines = append(lines, output.Cyan("  slacky auth refresh"))
 	}
-	lines = append(lines, "  "+defaultSearchCommand(authUser))
+	lines = append(lines, output.Cyan("  "+defaultSearchCommand(authUser)))
 	return lines
 }
 
@@ -658,6 +859,45 @@ func inspectCacheFiles(cachePath string) []cacheFile {
 		files = append(files, file)
 	}
 	return files
+}
+
+func cachePruneEnvelope(target cacheTarget, result store.PruneResult, status store.Status, olderThan int, dryRun bool) Envelope {
+	title := "Cache prune dry run"
+	applyLine := "  slacky cache prune" + cacheProfileFlag(target.ProfileName) + fmt.Sprintf(" --older-than %d --apply", olderThan)
+	footerLabel := "Apply:"
+	footerCommand := applyLine
+	if !dryRun {
+		title = "Cache prune complete"
+		footerLabel = "Next:"
+		footerCommand = "  slacky cache status" + cacheProfileFlag(target.ProfileName)
+	}
+	text := strings.Join([]string{
+		title,
+		"",
+		fmt.Sprintf("Profile: %s", cacheProfileLabel(target.ProfileName)),
+		fmt.Sprintf("Team: %s", authTeamLabel(target.Auth.TeamName, target.Auth.TeamID)),
+		fmt.Sprintf("User: %s", authDisplayLabel(target.Auth.UserID, target.Auth.UserName)),
+		fmt.Sprintf("DB: %s", target.Path),
+		fmt.Sprintf("Older than: %d days", olderThan),
+		fmt.Sprintf("Cutoff: %s", result.Cutoff),
+		fmt.Sprintf("Messages: %d", result.Messages),
+		fmt.Sprintf("Message mentions: %d", result.MessageMentions),
+		fmt.Sprintf("FTS rows: %d", result.MessagesFTS),
+		fmt.Sprintf("Thread links: %d", result.ThreadMessages),
+		fmt.Sprintf("Threads: %d", result.Threads),
+		"",
+		footerLabel,
+		footerCommand,
+	}, "\n")
+	payload := cacheTargetPayload(target)
+	payload["prune"] = result
+	return Envelope{
+		OK:     true,
+		Text:   text,
+		Source: "cache",
+		Cache:  map[string]any{"target": payload, "status": status},
+		DryRun: dryRun,
+	}
 }
 
 func cacheClearPayload(target cacheTarget, files []cacheFile) map[string]any {

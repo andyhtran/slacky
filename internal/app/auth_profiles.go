@@ -33,6 +33,16 @@ func activeProfileName(pathSet paths.Set) string {
 func inspectAuthStatus(pathSet paths.Set) config.AuthStatus {
 	status := config.InspectAuth(pathSet.AuthFile.Path)
 	status.CacheDBPath = pathSet.CacheDB.Path
+	activeName := activeProfileName(pathSet)
+	status.ActiveProfileName = activeName
+	if status.Exists {
+		status.Active = true
+		if status.ProfileName != "" {
+			status.Source = "profile"
+			status.SelectedBy = "active_profile"
+			status.ActiveProfileName = status.ProfileName
+		}
+	}
 	return status
 }
 

@@ -78,6 +78,8 @@ run_json version "$bin" version --json
 run_json doctor "$bin" doctor --json
 run_json paths "$bin" paths --json
 run_json auth-status "$bin" auth status --json
+run_json auth-status-active "$bin" auth status --active --json
+run_json auth-list "$bin" auth list --json
 run_json cache-status "$bin" cache status --json
 run_json schema "$bin" schema --json
 run_json agent-context "$bin" agent-context --json
@@ -99,7 +101,8 @@ run_json skill-uninstall "$bin" skill uninstall --skill-dir "$tmp/skills" --json
 run_json skills-list "$bin" skills list --json
 run_json skills-get-json "$bin" skills get core --json
 run_markdown skills-get "$bin" skills get core
-run_markdown skills-get-all "$bin" skills get --all
+run_markdown skills-get-setup "$bin" skills get setup
+run_markdown skills-get-auth "$bin" skills get auth
 
 if [[ "${SLACKY_LIVE_SEND:-0}" != "1" ]]; then
   run_json history "$bin" history --channel "$channel" --count 5 --json

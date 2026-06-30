@@ -5,71 +5,61 @@ description: Use when searching Slack and getting read-only context with the sla
 
 # Slacky
 
-Use `slacky` to find Slack messages, open the right thread, and pull concise context for a task.
+Use `slacky` to search Slack, read the right thread/context, and reuse stable IDs or permalinks. `slacky` is read-only against Slack.
 
 ## Core Loop
 
 ```text
-find/search -> narrow -> thread/context -> reuse
+discover -> search -> context -> permalink -> reuse
 ```
 
-Start with the user's topic directly:
+Prefer compact JSON for agent work; add `--json --compact` to `find`, `search`, `thread`, and `context` unless the user asked for human-readable output.
+
+Start from the user's topic:
 
 ```sh
-slacky find "incident review" --json --compact
+slacky find "topic words" --json --compact
 slacky search "topic words" --json --compact
 ```
 
-For requests like "what do people recommend/think/say about X", start with `find` before broad search:
+For "what do people recommend/think/say about X", use `find` first, then group or narrow live search:
 
 ```sh
 slacky find "topic recommendations" --json --compact
 slacky search "topic recommend" --json --compact --group-by-thread
 slacky search "topic recs" --json --compact --group-by-thread
-slacky thread --channel <channel-id> --ts <root-ts> --json --compact
 ```
 
-When synthesizing recommendation or consensus results, separate actual recommendations, deal/marketplace availability, questions/requests for advice, and noise.
+When synthesizing consensus, separate actual recommendations, deal/marketplace availability, advice requests, and noise.
 
-Use live Slack search syntax when useful:
-
-```sh
-slacky search "from:@person has:link" --json --compact
-slacky search "in:#general release" --json --compact
-slacky search "@person topic words" --json --compact
-```
-
-After a broad search finds a likely person or topic, narrow the query:
+Use Slack syntax when it sharpens the query:
 
 ```sh
 slacky search "from:@person topic words" --json --compact
 slacky search "in:#channel topic words" --json --compact
+slacky search "@person has:link" --json --compact
 ```
 
-Use local-only search when cached data is enough or live Slack is unavailable:
+Re-find cached context first when the user likely needs something already seen. It is instant, offline-friendly, and costs no Slack API calls:
 
 ```sh
 slacky search --local "topic words" --json --compact
+slacky search --local "in:#channel topic words" --json --compact
+slacky find --local "topic recommendations" --json --compact
 ```
 
 ## Follow Results
 
-Prefer commands returned in JSON result `commands` fields. For threaded hits:
+Prefer commands returned in JSON result `commands` fields; copy them exactly before constructing commands by hand.
 
-- Use `commands.thread` to read the containing thread.
-- Use `commands.context` for the exact hit timestamp.
-- Use `commands.root_context` when the hit is a reply and surrounding root-channel context is needed.
-- Use `commands.open` when a Slack permalink is the safest target.
+For threaded hits:
 
-Manual forms:
+- `commands.thread`: read the containing thread.
+- `commands.context`: read around the exact hit timestamp.
+- `commands.root_context`: read surrounding root-channel context for a reply.
+- `commands.open`: open the safest Slack permalink target.
 
-```sh
-slacky thread --channel C123456 --ts 1717440000.000000 --json --compact
-slacky context --channel C123456 --ts 1717440000.000100 --json --compact
-slacky open https://workspace.slack.com/archives/C123456/p1717440000000100 --mode thread --json --compact
-```
-
-If `context` fails on a threaded hit, run the `thread` command using the result's `root_ts` or `thread_ts`.
+If `context` fails on a threaded hit, run `commands.thread` or use the result's `root_ts` / `thread_ts` with `slacky thread`.
 
 ## People
 
@@ -83,43 +73,31 @@ slacky user person --json
 
 If a short name is ambiguous, use the suggested commands from the JSON error.
 
-## Output
+## Output And Safety
 
-For search, find, and follow-up reading, prefer compact JSON:
+Compact JSON keeps the IDs, timestamps, identity fields, permalinks, excerpts, and follow-up commands agents need while omitting rendered terminal text.
 
-```sh
-slacky search "topic words" --json --compact
-slacky find "topic words" --json --compact
-slacky thread --channel C123456 --ts 1717440000.000000 --json --compact
-slacky context --channel C123456 --ts 1717440000.000100 --json --compact
-```
+Use `--evidence` for human-readable per-result snippets. Use `--verbose --include-rich-content` only when Slack blocks, attachments, files, or tables are relevant.
 
-Compact results omit rendered human text and include the IDs, timestamps, datetime/date, identity fields, permalinks, excerpts, and follow-up commands agents need.
-
-Use `--evidence` only when human-readable per-result text is needed:
-
-```sh
-slacky search "topic words" --evidence
-```
-
-`slacky` is read-only against Slack. Do not expect commands that send messages, edit content, change channels, modify users, or change workspace settings.
+Do not expect commands that send messages, edit content, change channels, modify users, manage files, create webhooks, or change workspace settings.
 
 ## When Blocked
 
-If auth, cache, or Slack API errors block the task, use the command's suggested JSON error commands first. Useful fallback commands:
+Use the command's suggested JSON error commands first. Common fallbacks:
 
 ```sh
-slacky auth status --json
+slacky auth status --active --json
 slacky auth refresh --json
 slacky cache status --json
 slacky doctor --json
-slacky skills get auth
-slacky skills get setup
+slacky cache status --profile <name>
+slacky cache prune --profile <name> --older-than 90 --dry-run
+slacky cache clear --profile <name> --dry-run
 ```
 
-For a named auth profile's isolated cache, use:
+Use setup/auth guides only for install, first-run auth, profile switching, or auth recovery:
 
 ```sh
-slacky cache status --profile <name>
-slacky cache clear --profile <name> --dry-run
+slacky skills get setup
+slacky skills get auth
 ```

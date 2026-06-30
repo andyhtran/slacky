@@ -13,6 +13,8 @@ func TestRootHelpTextSections(t *testing.T) {
 	for _, want := range []string{
 		"slacky - Read-only Slack Search for Fast Context",
 		"Usage:",
+		"Start here (for AI agents):",
+		"slacky skills get core",
 		"Primary commands:",
 		"Discovery & context:",
 		"Setup & auth:",
@@ -34,6 +36,11 @@ func TestRootHelpTextSections(t *testing.T) {
 
 	if strings.Contains(text, "Commands:") {
 		t.Fatalf("root help should use curated sections, got generic Commands section:\n%s", text)
+	}
+	for _, dashboardOnly := range []string{"Auth:", "Cache:"} {
+		if strings.Contains(text, dashboardOnly) {
+			t.Fatalf("root help should not include dashboard stat %q:\n%s", dashboardOnly, text)
+		}
 	}
 }
 
@@ -67,6 +74,48 @@ func TestLimitAliasesParse(t *testing.T) {
 		if got := test.count(cli); got != test.expected {
 			t.Fatalf("parse %v count = %d", test.args, got)
 		}
+	}
+}
+
+func TestAuthStatusActiveFlagParses(t *testing.T) {
+	var cli CLI
+	parser, err := kong.New(
+		&cli,
+		kong.Name("slacky"),
+		kong.Description(appDescription),
+		kong.Vars{"version": "slacky dev"},
+		kong.Help(helpPrinter),
+		kong.ConfigureHelp(kong.HelpOptions{Compact: true}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parser.Parse([]string{"auth", "status", "--active"}); err != nil {
+		t.Fatalf("parse auth status --active: %v", err)
+	}
+	if !cli.Auth.Status.Active {
+		t.Fatalf("auth status --active did not set Active")
+	}
+}
+
+func TestFindLocalFlagParses(t *testing.T) {
+	var cli CLI
+	parser, err := kong.New(
+		&cli,
+		kong.Name("slacky"),
+		kong.Description(appDescription),
+		kong.Vars{"version": "slacky dev"},
+		kong.Help(helpPrinter),
+		kong.ConfigureHelp(kong.HelpOptions{Compact: true}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := parser.Parse([]string{"find", "--local", "release"}); err != nil {
+		t.Fatalf("parse find --local: %v", err)
+	}
+	if !cli.Find.Local {
+		t.Fatalf("find --local did not set Local")
 	}
 }
 

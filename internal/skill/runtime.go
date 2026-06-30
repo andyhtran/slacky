@@ -35,12 +35,12 @@ func ListGuides() []RuntimeGuide {
 		},
 		{
 			Name:        SetupGuide,
-			Description: "First-run install, Slack app setup, token/session import, auth verification, and handoff guidance.",
+			Description: "First-run install, Slack app creation, OAuth login, auth verification, and handoff guidance.",
 			Visible:     true,
 		},
 		{
 			Name:        AuthGuide,
-			Description: "Auth profile switching, auth method choice, browser-session import, cache isolation, and active account verification.",
+			Description: "Auth method choice, credential import, profile switching, refresh recovery, cache isolation, and active account verification.",
 			Visible:     true,
 		},
 	}
@@ -60,18 +60,6 @@ func GetGuide(name string) (RuntimeGuide, error) {
 		return guides[index], nil
 	}
 	return RuntimeGuide{}, fmt.Errorf("unknown runtime skill %q; valid skills: %s", name, validGuideNames())
-}
-
-func GetAllGuides() ([]RuntimeGuide, error) {
-	guides := ListGuides()
-	for index := range guides {
-		full, err := GetGuide(guides[index].Name)
-		if err != nil {
-			return nil, err
-		}
-		guides[index] = full
-	}
-	return guides, nil
 }
 
 func StubMarkdown(version string) string {

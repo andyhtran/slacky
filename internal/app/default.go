@@ -6,7 +6,9 @@ import (
 
 	"github.com/andyhtran/slacky/internal/api"
 	"github.com/andyhtran/slacky/internal/config"
+	"github.com/andyhtran/slacky/internal/output"
 	"github.com/andyhtran/slacky/internal/paths"
+	"github.com/andyhtran/slacky/internal/skill"
 	"github.com/andyhtran/slacky/internal/store"
 )
 
@@ -23,23 +25,7 @@ func (cmd *DefaultCmd) Run(globals *Globals) error {
 	cacheStatus := store.Inspect(pathSet.CacheDB.Path)
 	authUser := authenticatedUserLabel(authStatus, pathSet.CacheDB.Path)
 
-	lines := make([]string, 0, 16)
-	lines = append(
-		lines,
-		"slacky",
-		"",
-		fmt.Sprintf("Home: %s", pathSet.Home.Path),
-		fmt.Sprintf("Auth: %s", authReadinessLabel(authStatus.ReadyForSlack, authUser)),
-		fmt.Sprintf("Cache: %s", cacheLabel(cacheStatus)),
-		"",
-		"More:",
-		"  slacky paths",
-		"  slacky auth status",
-		"  slacky cache status",
-		"",
-	)
-	lines = append(lines, defaultNextLines(authStatus.ReadyForSlack, authUser)...)
-	text := strings.Join(lines, "\n")
+	text := defaultDashboardText(authStatus, cacheStatus, authUser, !globals.JSON && !globals.Raw && !globals.NoColor)
 
 	return writeEnvelope(globals, Envelope{
 		OK:      true,
@@ -63,20 +49,83 @@ func (cmd *VersionCmd) Run(globals *Globals) error {
 	})
 }
 
+func defaultDashboardText(authStatus config.AuthStatus, cacheStatus store.Status, authUser string, styled bool) string {
+	nextLines := defaultNextLines(authStatus.ReadyForSlack, authUser)
+	lines := make([]string, 0, 11+len(nextLines))
+	lines = append(
+		lines,
+		styleIf(styled, output.Bold, "slacky"),
+		appDescription,
+		"",
+		fmt.Sprintf("Auth: %s", authReadinessLabel(authStatus.ReadyForSlack, authUser)),
+		fmt.Sprintf("Cache: %s", defaultCacheLabel(cacheStatus)),
+		"",
+		"Usage:",
+		"  slacky <command> [options]",
+		"Start here (for AI agents):",
+		"  slacky skills get core",
+		"",
+	)
+	lines = append(lines, nextLines...)
+	return strings.Join(styleGuidanceLines(lines, styled), "\n")
+}
+
 func defaultNextLines(authReady bool, authUser string) []string {
 	if !authReady {
-		return []string{
+		return appendRuntimeSkillList([]string{
 			"Next:",
+			"  slacky auth status",
 			"  slacky setup wizard",
 			"  slacky auth import",
-		}
+		})
 	}
-	return []string{
+	return appendRuntimeSkillList([]string{
 		"Next:",
+		"  slacky auth status",
 		"  " + defaultSearchCommand(authUser),
 		"  slacky channels",
-		"  slacky history --channel general --count 25",
+		"  slacky search --local " + shellQuote("topic words"),
+	})
+}
+
+func appendRuntimeSkillList(lines []string) []string {
+	visible := 0
+	for _, guide := range skill.ListGuides() {
+		if guide.Visible {
+			visible++
+		}
 	}
+	if visible > 1 {
+		lines = append(lines, "  slacky skills list")
+	}
+	return lines
+}
+
+func styleGuidanceLines(lines []string, styled bool) []string {
+	styledLines := make([]string, len(lines))
+	section := ""
+	for index, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case trimmed == "Usage:" || trimmed == "Start here (for AI agents):" || trimmed == "Next:":
+			section = trimmed
+			styledLines[index] = styleIf(styled, output.Dim, line)
+		case trimmed == "":
+			styledLines[index] = line
+		case strings.HasPrefix(line, "  ") && section != "Usage:":
+			styledLines[index] = "  " + styleIf(styled, output.Cyan, trimmed)
+		default:
+			styledLines[index] = line
+		}
+	}
+	return styledLines
+}
+
+func styleIf(enabled bool, apply func(string) string, value string) string {
+	if !enabled {
+		return value
+	}
+	return apply(value)
 }
 
 func defaultSearchCommand(authUser string) string {
@@ -153,11 +202,44 @@ func readiness(ready bool) string {
 	return "missing user token"
 }
 
+func defaultCacheLabel(status store.Status) string {
+	if !status.Exists {
+		return "not created"
+	}
+	if !status.Openable {
+		return "not openable"
+	}
+	parts := []string{}
+	for _, item := range []struct {
+		key      string
+		singular string
+	}{
+		{key: "messages", singular: "message"},
+		{key: "channels", singular: "channel"},
+		{key: "users", singular: "user"},
+	} {
+		if count := status.Counts[item.key]; count > 0 {
+			parts = append(parts, pluralCount(count, item.singular))
+		}
+	}
+	if len(parts) == 0 {
+		return fmt.Sprintf("empty (%s)", humanByteSize(status.SizeBytes))
+	}
+	return fmt.Sprintf("%s (%s)", strings.Join(parts, ", "), humanByteSize(status.SizeBytes))
+}
+
 func cacheLabel(status store.Status) string {
 	if status.Exists {
 		return fmt.Sprintf("%s at %s", humanByteSize(status.SizeBytes), status.CachePath)
 	}
 	return "not created"
+}
+
+func pluralCount(count int, singular string) string {
+	if count == 1 {
+		return fmt.Sprintf("1 %s", singular)
+	}
+	return fmt.Sprintf("%d %ss", count, singular)
 }
 
 func humanByteSize(size int64) string {

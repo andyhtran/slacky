@@ -53,10 +53,14 @@ func rootHelpText(indexPath string) string {
 Usage:
   slacky <command> [options]
 
+Start here (for AI agents):
+  slacky skills get core
+
 Primary commands:
   slacky search <query>                    - Search Slack messages
   slacky search --local <query>            - Search only the local cache
   slacky find <topic>                      - Rank conversations for consensus/recommendations
+  slacky find --local <topic>              - Rank cached conversations without Slack API calls
   slacky open <slack-url>                  - Open a Slack archive permalink
   slacky message --channel <c> --ts <ts>   - Fetch a single message
   slacky thread --channel <c> --ts <ts>    - Fetch a thread
@@ -77,22 +81,22 @@ Setup & auth:
   slacky auth list                         - List saved auth profiles
   slacky auth switch <name>                - Switch the active auth profile
   slacky auth refresh [--profile <name>]   - Refresh rotating OAuth credentials
-  slacky auth status                       - Show auth status
+  slacky auth status [--active]            - Show redacted auth status
   slacky auth logout                       - Log out and remove local Slack auth
 
 Maintenance:
   slacky doctor                            - Check auth, Slack reachability, cache, and cooldowns
   slacky paths                             - Show home/auth/cache/state/log paths
   slacky cache status [--profile <name>]   - View local cache health
+  slacky cache prune --older-than 90       - Preview old cached message removal
   slacky cache clear --dry-run             - Preview cache file removal
   slacky version                           - Show version information
 
 AI agents & integrations:
   slacky schema                            - Show command/result schema as JSON
   slacky agent-context                     - Show runtime context as JSON
-  slacky skills list                       - List bundled runtime skills
+  slacky skills list                       - Choose bundled runtime guidance
   slacky skills get core                   - Print version-matched runtime guidance
-  slacky skills get setup                  - Print first-run setup guidance
   slacky skill status                      - Show installed agent skill state
   slacky skill install [--codex]           - Install the bundled agent skill stub
   slacky skill uninstall                   - Remove the managed agent skill stub
@@ -110,7 +114,7 @@ Global options:
 Search options:
   --count, --limit <n>                     - Maximum results
   --sort <score|timestamp>                 - Slack search sort
-  --local                                  - Search only the local SQLite cache
+  --local                                  - Search/rank only the local SQLite cache
   --group-by-thread                        - Return ranked threads instead of individual hits
   --compact                                - Compact agent JSON for search/find/message/thread/context/open
   --evidence                               - Show detailed per-result evidence and commands

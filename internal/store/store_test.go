@@ -182,6 +182,72 @@ func TestStoreThreadHistoryAndContextQueries(t *testing.T) {
 	}
 }
 
+func TestStoreMessageThreadTSRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache", "index.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer func() {
+		_ = db.Close()
+	}()
+
+	messages := []api.MessageResult{
+		{ChannelID: "C123", TS: "1.000000", Excerpt: "standalone threadts marker"},
+		{ChannelID: "C123", TS: "2.000100", ThreadTS: "2.000000", RootTS: "2.000000", Excerpt: "reply threadts marker"},
+	}
+	if err := db.UpsertMessages(messages); err != nil {
+		t.Fatalf("upsert messages: %v", err)
+	}
+
+	standalone, found, err := db.Message("C123", "1.000000")
+	if err != nil {
+		t.Fatalf("standalone message: %v", err)
+	}
+	if !found {
+		t.Fatalf("standalone message not found")
+	}
+	assertStoredThreadFields(t, standalone, "", "1.000000")
+
+	reply, found, err := db.Message("C123", "2.000100")
+	if err != nil {
+		t.Fatalf("reply message: %v", err)
+	}
+	if !found {
+		t.Fatalf("reply message not found")
+	}
+	assertStoredThreadFields(t, reply, "2.000000", "2.000000")
+
+	result, err := db.SearchMessages("threadts", 10)
+	if err != nil {
+		t.Fatalf("search messages: %v", err)
+	}
+	byTS := messagesByTS(result.Messages)
+	assertStoredThreadFields(t, byTS["1.000000"], "", "1.000000")
+	assertStoredThreadFields(t, byTS["2.000100"], "2.000000", "2.000000")
+}
+
+func assertStoredThreadFields(t *testing.T, message api.MessageResult, wantThreadTS string, wantRootTS string) {
+	t.Helper()
+	if message.TS == "" {
+		t.Fatalf("message not found in result set")
+	}
+	if message.ThreadTS != wantThreadTS {
+		t.Fatalf("message %s ThreadTS = %q, want %q", message.TS, message.ThreadTS, wantThreadTS)
+	}
+	if message.RootTS != wantRootTS {
+		t.Fatalf("message %s RootTS = %q, want %q", message.TS, message.RootTS, wantRootTS)
+	}
+}
+
+func messagesByTS(messages []api.MessageResult) map[string]api.MessageResult {
+	byTS := map[string]api.MessageResult{}
+	for index := range messages {
+		byTS[messages[index].TS] = messages[index]
+	}
+	return byTS
+}
+
 func TestInspectDoesNotCreateDatabase(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "cache", "index.db")
 	status := Inspect(path)
@@ -274,6 +340,65 @@ func TestStoreIndexesNormalizedTextAndMentions(t *testing.T) {
 	}
 	if len(channelMentions) != 1 || channelMentions[0].DisplayText != "team-ops" {
 		t.Fatalf("unexpected channel mentions: %#v", channelMentions)
+	}
+}
+
+func TestStorePruneMessagesBeforeKeepsFTSAndThreadsInSync(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache", "index.db")
+	db, err := Open(path)
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	defer func() {
+		_ = db.Close()
+	}()
+
+	oldThread := api.ThreadResult{
+		ChannelID: "C123",
+		RootTS:    "1.000000",
+		Permalink: "https://example.slack.com/archives/C123/p1000000",
+		Messages: []api.MessageResult{
+			{ChannelID: "C123", TS: "1.000000", RootTS: "1.000000", Excerpt: "oldprune mentions <@U999>"},
+		},
+	}
+	if err := db.UpsertThread(oldThread); err != nil {
+		t.Fatalf("upsert old thread: %v", err)
+	}
+	if err := db.UpsertMessages([]api.MessageResult{{ChannelID: "C123", TS: "2.000000", RootTS: "2.000000", Excerpt: "freshkeep message"}}); err != nil {
+		t.Fatalf("upsert fresh message: %v", err)
+	}
+	oldTime := sqliteTime(time.Now().UTC().AddDate(0, 0, -60))
+	if _, err := db.db.Exec(`UPDATE messages SET updated_at = ? WHERE ts = '1.000000'`, oldTime); err != nil {
+		t.Fatalf("age old message: %v", err)
+	}
+
+	cutoff := time.Now().UTC().AddDate(0, 0, -30)
+	dryRun, err := db.PruneMessagesBefore(cutoff, true)
+	if err != nil {
+		t.Fatalf("dry-run prune: %v", err)
+	}
+	if !dryRun.DryRun || dryRun.Messages != 1 || dryRun.MessageMentions != 1 || dryRun.MessagesFTS != 1 || dryRun.ThreadMessages != 1 || dryRun.Threads != 1 {
+		t.Fatalf("unexpected dry-run result: %#v", dryRun)
+	}
+	if old, err := db.SearchMessages("oldprune", 10); err != nil || len(old.Messages) != 1 {
+		t.Fatalf("dry run should preserve old FTS hit, result=%#v err=%v", old, err)
+	}
+
+	applied, err := db.PruneMessagesBefore(cutoff, false)
+	if err != nil {
+		t.Fatalf("apply prune: %v", err)
+	}
+	if applied.DryRun || applied.Messages != 1 || applied.MessageMentions != 1 || applied.MessagesFTS != 1 || applied.ThreadMessages != 1 || applied.Threads != 1 {
+		t.Fatalf("unexpected applied result: %#v", applied)
+	}
+	if old, err := db.SearchMessages("oldprune", 10); err != nil || len(old.Messages) != 0 {
+		t.Fatalf("old FTS hit should be gone, result=%#v err=%v", old, err)
+	}
+	if fresh, err := db.SearchMessages("freshkeep", 10); err != nil || len(fresh.Messages) != 1 {
+		t.Fatalf("fresh FTS hit should remain, result=%#v err=%v", fresh, err)
+	}
+	if _, found, err := db.Thread("C123", "1.000000"); err != nil || found {
+		t.Fatalf("old empty thread should be gone, found=%t err=%v", found, err)
 	}
 }
 

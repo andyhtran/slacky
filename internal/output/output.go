@@ -12,10 +12,13 @@ import (
 )
 
 const (
-	ansiReset = "\x1b[0m"
-	ansiBold  = "\x1b[1m"
-	ansiDim   = "\x1b[2m"
-	ansiCyan  = "\x1b[36m"
+	ansiReset  = "\x1b[0m"
+	ansiBold   = "\x1b[1m"
+	ansiDim    = "\x1b[2m"
+	ansiCyan   = "\x1b[36m"
+	ansiGreen  = "\x1b[32m"
+	ansiYellow = "\x1b[33m"
+	ansiRed    = "\x1b[31m"
 )
 
 var colorEnabled = initColor()
@@ -81,6 +84,27 @@ func Cyan(value string) string {
 		return value
 	}
 	return ansiCyan + value + ansiReset
+}
+
+func Green(value string) string {
+	if !colorEnabled {
+		return value
+	}
+	return ansiGreen + value + ansiReset
+}
+
+func Yellow(value string) string {
+	if !colorEnabled {
+		return value
+	}
+	return ansiYellow + value + ansiReset
+}
+
+func Red(value string) string {
+	if !colorEnabled {
+		return value
+	}
+	return ansiRed + value + ansiReset
 }
 
 func HighlightTerms(value string, terms []string) string {

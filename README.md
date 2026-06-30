@@ -53,10 +53,10 @@ To keep multiple credentials, store named profiles and switch between them:
 slacky auth import --name work-token
 slacky auth list
 slacky auth switch work-token
-slacky auth status
+slacky auth status --active
 ```
 
-Named profiles use separate SQLite caches by Slack workspace and user. Check the exact active cache with `slacky auth status` or `slacky paths`.
+Named profiles use separate SQLite caches by Slack workspace and user. Check the exact active profile, credential source, storage label, and cache path with `slacky auth status --active` or `slacky paths`.
 
 If `slacky auth status` shows `expires_at`, Slacky refreshes rotating OAuth credentials before live Slack API commands when possible. For explicit diagnosis, run `slacky auth refresh [--profile <name>]`.
 
@@ -73,10 +73,12 @@ slacky find "customer escalation"
 slacky find "paddle recommendations"
 ```
 
-Search the local cache when offline or rate-limited:
+Re-find cached context instantly with zero Slack API calls. This is useful offline, during rate limits, or when you already fetched the conversation before:
 
 ```bash
 slacky search --local "release notes"
+slacky search --local "in:#general launch checklist" --json --compact
+slacky find --local "customer escalation" --json --compact
 ```
 
 ## Get context
@@ -121,7 +123,7 @@ For search-heavy or synthesis workflows, use `--json --compact` to get IDs, time
 
 Slack API calls are read-only. The default OAuth path uses user-token scopes and does not request permissions to send messages, mutate channels, change users, manage files, create webhooks, or change workspace settings. Browser-session import is an advanced fallback that uses the user's existing Slack web session, so treat those credentials like browser cookies.
 
-`slacky` stores its own files under `~/.slacky/`: auth metadata, profile-scoped SQLite caches, small state files, logs, and CLI-owned skill storage. Legacy unnamed auth uses `~/.slacky/cache/index.db`; named auth uses `~/.slacky/cache/profiles/<profile>--<team_id>--<user_id>/index.db`. Set `SLACKY_HOME` to override this for isolated runs. Auth files are written with `0600` permissions, and secrets are redacted from status, doctor, schema, and agent-context output.
+`slacky` stores its own files under `~/.slacky/`: auth metadata, profile-scoped SQLite caches, small state files, logs, and CLI-owned skill storage. Legacy unnamed auth uses `~/.slacky/cache/index.db`; named auth uses `~/.slacky/cache/profiles/<profile>--<team_id>--<user_id>/index.db`. Set `SLACKY_HOME` to override this for isolated runs. Use `slacky cache prune --older-than 90 --dry-run` before deleting old cached messages. Auth files are written with `0600` permissions, and secrets are redacted from status, doctor, schema, and agent-context output.
 
 Run `slacky --help`, `slacky schema --json`, or `slacky skills get core` for the full command surface.
 

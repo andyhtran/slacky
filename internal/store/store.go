@@ -78,6 +78,16 @@ type FetchState struct {
 	UpdatedAt      string `json:"updated_at,omitempty"`
 }
 
+type PruneResult struct {
+	Cutoff          string `json:"cutoff"`
+	DryRun          bool   `json:"dry_run"`
+	Messages        int    `json:"messages"`
+	MessageMentions int    `json:"message_mentions"`
+	MessagesFTS     int    `json:"messages_fts"`
+	ThreadMessages  int    `json:"thread_messages"`
+	Threads         int    `json:"threads"`
+}
+
 func Open(path string) (*DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
@@ -562,11 +572,10 @@ func scanMessage(scanner rowScanner) (api.MessageResult, error) {
 	var blocks string
 	var attachments string
 	var files string
-	if err := scanner.Scan(&message.ChannelID, &message.TS, &message.ChannelName, &message.User, &message.Username, &message.Excerpt, &message.RootTS, &message.Permalink, &blocks, &attachments, &files); err != nil {
+	if err := scanner.Scan(&message.ChannelID, &message.TS, &message.ChannelName, &message.User, &message.Username, &message.Excerpt, &message.ThreadTS, &message.RootTS, &message.Permalink, &blocks, &attachments, &files); err != nil {
 		return api.MessageResult{}, err
 	}
 	message.Excerpt = api.CleanSlackText(message.Excerpt)
-	message.ThreadTS = message.RootTS
 	message.Blocks = rawMessage(blocks)
 	message.Attachments = rawMessage(attachments)
 	message.Files = rawFiles(files)
@@ -667,6 +676,61 @@ func (store *DB) SearchMessages(query string, limit int) (LocalSearchResult, err
 		fallback = []api.MessageResult{}
 	}
 	return LocalSearchResult{Messages: fallback, Suggestions: suggestions}, nil
+}
+
+func (store *DB) PruneMessagesBefore(cutoff time.Time, dryRun bool) (PruneResult, error) {
+	cutoffText := sqliteTime(cutoff)
+	result, err := store.pruneCounts(cutoffText)
+	if err != nil || dryRun {
+		result.DryRun = dryRun
+		return result, err
+	}
+	tx, err := store.db.Begin()
+	if err != nil {
+		return result, err
+	}
+	defer func() {
+		_ = tx.Rollback()
+	}()
+	statements := []struct {
+		query string
+		args  []any
+	}{
+		{query: `CREATE TEMP TABLE IF NOT EXISTS temp_prune_messages(channel_id TEXT NOT NULL, ts TEXT NOT NULL, PRIMARY KEY(channel_id, ts))`},
+		{query: `DELETE FROM temp_prune_messages`},
+		{query: `INSERT INTO temp_prune_messages(channel_id, ts) SELECT channel_id, ts FROM messages WHERE updated_at < ?`, args: []any{cutoffText}},
+		{query: `DELETE FROM messages_fts WHERE EXISTS (SELECT 1 FROM temp_prune_messages p WHERE p.channel_id = messages_fts.channel_id AND p.ts = messages_fts.ts)`},
+		{query: `DELETE FROM thread_messages WHERE EXISTS (SELECT 1 FROM temp_prune_messages p WHERE p.channel_id = thread_messages.channel_id AND p.ts = thread_messages.ts)`},
+		{query: `DELETE FROM messages WHERE EXISTS (SELECT 1 FROM temp_prune_messages p WHERE p.channel_id = messages.channel_id AND p.ts = messages.ts)`},
+		{query: `DELETE FROM threads WHERE NOT EXISTS (SELECT 1 FROM messages m WHERE m.channel_id = threads.channel_id AND m.root_ts = threads.root_ts)`},
+		{query: `DELETE FROM temp_prune_messages`},
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement.query, statement.args...); err != nil {
+			return result, err
+		}
+	}
+	return result, tx.Commit()
+}
+
+func (store *DB) pruneCounts(cutoffText string) (PruneResult, error) {
+	result := PruneResult{Cutoff: cutoffText}
+	queries := []struct {
+		dest  *int
+		query string
+	}{
+		{dest: &result.Messages, query: `SELECT COUNT(*) FROM messages WHERE updated_at < ?`},
+		{dest: &result.MessageMentions, query: `SELECT COUNT(*) FROM message_mentions mm WHERE EXISTS (SELECT 1 FROM messages m WHERE m.channel_id = mm.channel_id AND m.ts = mm.ts AND m.updated_at < ?)`},
+		{dest: &result.MessagesFTS, query: `SELECT COUNT(*) FROM messages_fts f WHERE EXISTS (SELECT 1 FROM messages m WHERE m.channel_id = f.channel_id AND m.ts = f.ts AND m.updated_at < ?)`},
+		{dest: &result.ThreadMessages, query: `SELECT COUNT(*) FROM thread_messages tm WHERE EXISTS (SELECT 1 FROM messages m WHERE m.channel_id = tm.channel_id AND m.ts = tm.ts AND m.updated_at < ?)`},
+		{dest: &result.Threads, query: `SELECT COUNT(*) FROM threads t WHERE NOT EXISTS (SELECT 1 FROM messages m WHERE m.channel_id = t.channel_id AND m.root_ts = t.root_ts AND m.updated_at >= ?)`},
+	}
+	for _, item := range queries {
+		if err := store.db.QueryRow(item.query, cutoffText).Scan(item.dest); err != nil {
+			return result, err
+		}
+	}
+	return result, nil
 }
 
 func (store *DB) RecordCooldown(method string, retryAfter time.Duration, retryAt time.Time, source string) error {
@@ -786,6 +850,7 @@ func messageColumns(alias string, textExpr string) string {
 		"COALESCE(" + prefix + "user_id, '')",
 		"COALESCE(" + prefix + "username, '')",
 		"COALESCE(" + textExpr + ", '')",
+		"COALESCE(" + prefix + "thread_ts, '')",
 		"COALESCE(" + prefix + "root_ts, '')",
 		"COALESCE(" + prefix + "permalink, '')",
 		"COALESCE(" + prefix + "blocks_json, '')",
@@ -1029,6 +1094,10 @@ func rawFiles(value string) []api.FileResult {
 		return nil
 	}
 	return files
+}
+
+func sqliteTime(value time.Time) string {
+	return value.UTC().Format("2006-01-02 15:04:05")
 }
 
 func readOnlyDSN(path string) string {

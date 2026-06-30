@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -138,6 +139,124 @@ func TestAuthStatusShowsProfileCacheDB(t *testing.T) {
 		if !strings.Contains(text, want) {
 			t.Fatalf("auth status output missing %q\n%s", want, text)
 		}
+	}
+}
+
+func TestAuthStatusJSONIncludesActiveSourceAndStorage(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SLACKY_HOME", home)
+	authPath := filepath.Join(home, "slack.json")
+	if err := config.WriteAuth(authPath, config.Auth{
+		ProfileName: "work",
+		AuthKind:    config.AuthKindImportedUserToken,
+		UserToken:   "xoxp-test",
+		TeamID:      "T123456",
+		TeamName:    "Sample Workspace",
+		UserID:      "U999999",
+		UserName:    "sampleuser",
+	}); err != nil {
+		t.Fatalf("write auth: %v", err)
+	}
+
+	text := captureStdout(t, func() {
+		cmd := AuthStatusCmd{Active: true}
+		if err := cmd.Run(&Globals{JSON: true}); err != nil {
+			t.Fatalf("auth status json: %v", err)
+		}
+	})
+	if !strings.HasPrefix(text, "{") {
+		t.Fatalf("auth status JSON should start at byte 1, got %q", text[:min(len(text), 20)])
+	}
+	var envelope struct {
+		Auth struct {
+			Active           bool   `json:"active"`
+			ActiveOnly       bool   `json:"active_only"`
+			Source           string `json:"source"`
+			SelectedBy       string `json:"selected_by"`
+			CredentialSource string `json:"credential_source"`
+			Storage          struct {
+				Kind                 string `json:"kind"`
+				Path                 string `json:"path"`
+				SecretValuesRedacted bool   `json:"secret_values_redacted"`
+			} `json:"storage"`
+			Token struct {
+				Present bool   `json:"present"`
+				State   string `json:"state"`
+			} `json:"token"`
+		} `json:"auth"`
+	}
+	if err := json.Unmarshal([]byte(text), &envelope); err != nil {
+		t.Fatalf("decode auth status JSON: %v\n%s", err, text)
+	}
+	if !envelope.Auth.Active || !envelope.Auth.ActiveOnly {
+		t.Fatalf("auth active flags = active:%t active_only:%t", envelope.Auth.Active, envelope.Auth.ActiveOnly)
+	}
+	if envelope.Auth.Source != "profile" || envelope.Auth.SelectedBy != "active_profile" {
+		t.Fatalf("auth source = %q selected_by = %q", envelope.Auth.Source, envelope.Auth.SelectedBy)
+	}
+	if envelope.Auth.CredentialSource != "local_file" || envelope.Auth.Storage.Kind != "local_file" || envelope.Auth.Storage.Path != authPath || !envelope.Auth.Storage.SecretValuesRedacted {
+		t.Fatalf("auth storage/source = %#v", envelope.Auth)
+	}
+	if !envelope.Auth.Token.Present || envelope.Auth.Token.State != "ready" {
+		t.Fatalf("auth token = %#v", envelope.Auth.Token)
+	}
+}
+
+func TestAuthListJSONIncludesProfileSourceAndStorage(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SLACKY_HOME", home)
+	profilesDir := filepath.Join(home, "auth")
+	if err := config.WriteAuthProfile(profilesDir, "work", config.Auth{
+		AuthKind:       config.AuthKindBrowserSession,
+		UserToken:      "xoxc-test",
+		SessionCookieD: "xoxd-test",
+		TeamID:         "T123456",
+		TeamName:       "Sample Workspace",
+		UserID:         "U999999",
+		UserName:       "sampleuser",
+	}); err != nil {
+		t.Fatalf("write auth profile: %v", err)
+	}
+	if err := config.WriteActiveProfile(filepath.Join(home, "state", "active-auth-profile"), "work"); err != nil {
+		t.Fatalf("write active profile: %v", err)
+	}
+
+	text := captureStdout(t, func() {
+		cmd := AuthListCmd{}
+		if err := cmd.Run(&Globals{JSON: true}); err != nil {
+			t.Fatalf("auth list json: %v", err)
+		}
+	})
+	var envelope struct {
+		Auth struct {
+			Profiles []struct {
+				Name             string `json:"name"`
+				Active           bool   `json:"active"`
+				Source           string `json:"source"`
+				CredentialSource string `json:"credential_source"`
+				Storage          struct {
+					Kind string `json:"kind"`
+					Path string `json:"path"`
+				} `json:"storage"`
+				Token struct {
+					Present bool   `json:"present"`
+					State   string `json:"state"`
+				} `json:"token"`
+			} `json:"profiles"`
+		} `json:"auth"`
+	}
+	if err := json.Unmarshal([]byte(text), &envelope); err != nil {
+		t.Fatalf("decode auth list JSON: %v\n%s", err, text)
+	}
+	if len(envelope.Auth.Profiles) != 1 {
+		t.Fatalf("profiles = %#v", envelope.Auth.Profiles)
+	}
+	profile := envelope.Auth.Profiles[0]
+	if profile.Name != "work" || !profile.Active || profile.Source != "profile" || profile.CredentialSource != "browser_session" {
+		t.Fatalf("profile source = %#v", profile)
+	}
+	if profile.Storage.Kind != "local_file" || profile.Storage.Path == "" || !profile.Token.Present || profile.Token.State != "ready" {
+		t.Fatalf("profile storage/token = %#v", profile)
 	}
 }
 

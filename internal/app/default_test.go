@@ -7,14 +7,17 @@ import (
 
 	"github.com/andyhtran/slacky/internal/api"
 	"github.com/andyhtran/slacky/internal/config"
+	"github.com/andyhtran/slacky/internal/output"
 	"github.com/andyhtran/slacky/internal/store"
 )
 
 func TestDefaultNextLinesWhenAuthMissing(t *testing.T) {
 	text := strings.Join(defaultNextLines(false, ""), "\n")
 	for _, want := range []string{
+		"slacky auth status",
 		"slacky setup wizard",
 		"slacky auth import",
+		"slacky skills list",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("missing auth next lines should contain %q\n%s", want, text)
@@ -28,9 +31,11 @@ func TestDefaultNextLinesWhenAuthMissing(t *testing.T) {
 func TestDefaultNextLinesWhenAuthReady(t *testing.T) {
 	text := strings.Join(defaultNextLines(true, "@sampleuser"), "\n")
 	for _, want := range []string{
+		"slacky auth status",
 		"slacky search 'from:@sampleuser has:link'",
 		"slacky channels",
-		"slacky history --channel general --count 25",
+		"slacky search --local 'topic words'",
+		"slacky skills list",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("ready auth next lines should contain %q\n%s", want, text)
@@ -45,6 +50,91 @@ func TestDefaultNextLinesFallsBackToPlaceholder(t *testing.T) {
 	text := strings.Join(defaultNextLines(true, ""), "\n")
 	if !strings.Contains(text, "slacky search 'from:@someone has:link'") {
 		t.Fatalf("ready auth without user should contain placeholder search:\n%s", text)
+	}
+}
+
+func TestDefaultDashboardTextContract(t *testing.T) {
+	output.SetColor(false)
+	defer output.SetColor(false)
+
+	text := defaultDashboardText(config.AuthStatus{ReadyForSlack: true}, defaultDashboardCacheStatus(), "@sampleuser", false)
+	for _, want := range []string{
+		"slacky\n",
+		appDescription,
+		"Auth: ready as @sampleuser",
+		"Cache: 2 messages, 1 channel, 1 user (240 KB)",
+		"Usage:\n  slacky <command> [options]\nStart here (for AI agents):\n  slacky skills get core",
+		"Next:",
+		"slacky search 'from:@sampleuser has:link'",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("default dashboard missing %q\n%s", want, text)
+		}
+	}
+	for _, blocked := range []string{"Home:", "More:", "Index:", "/tmp/slacky/cache/index.db", "version"} {
+		if strings.Contains(text, blocked) {
+			t.Fatalf("default dashboard should not contain %q\n%s", blocked, text)
+		}
+	}
+	if count := strings.Count(text, "Next:"); count != 1 {
+		t.Fatalf("default dashboard has %d Next blocks\n%s", count, text)
+	}
+	if lines := strings.Split(text, "\n"); len(lines) > 18 {
+		t.Fatalf("default dashboard has %d lines, want <= 18\n%s", len(lines), text)
+	}
+}
+
+func TestDefaultDashboardTextStylesTTYOutput(t *testing.T) {
+	output.SetColor(true)
+	defer output.SetColor(false)
+
+	text := defaultDashboardText(config.AuthStatus{ReadyForSlack: true}, defaultDashboardCacheStatus(), "@sampleuser", true)
+	for _, want := range []string{
+		"\x1b[1mslacky\x1b[0m",
+		"\x1b[2mUsage:\x1b[0m",
+		"\x1b[2mStart here (for AI agents):\x1b[0m",
+		"  \x1b[36mslacky skills get core\x1b[0m",
+		"\x1b[2mNext:\x1b[0m",
+		"  \x1b[36mslacky search 'from:@sampleuser has:link'\x1b[0m",
+		"  \x1b[36mslacky channels\x1b[0m",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("styled default dashboard missing %q\n%s", want, text)
+		}
+	}
+}
+
+func TestDefaultDashboardTextNoANSIWhenStylingDisabled(t *testing.T) {
+	output.SetColor(true)
+	defer output.SetColor(false)
+
+	text := defaultDashboardText(config.AuthStatus{ReadyForSlack: true}, defaultDashboardCacheStatus(), "@sampleuser", false)
+	if strings.Contains(text, "\x1b[") {
+		t.Fatalf("unstyled default dashboard contains ANSI escapes:\n%q", text)
+	}
+}
+
+func TestDefaultCacheLabelOmitsPath(t *testing.T) {
+	label := defaultCacheLabel(defaultDashboardCacheStatus())
+	if strings.Contains(label, "/tmp/slacky/cache/index.db") {
+		t.Fatalf("default cache label should omit paths, got %q", label)
+	}
+	if label != "2 messages, 1 channel, 1 user (240 KB)" {
+		t.Fatalf("default cache label = %q", label)
+	}
+}
+
+func defaultDashboardCacheStatus() store.Status {
+	return store.Status{
+		CachePath: "/tmp/slacky/cache/index.db",
+		Exists:    true,
+		Openable:  true,
+		SizeBytes: 245760,
+		Counts: map[string]int{
+			"messages": 2,
+			"channels": 1,
+			"users":    1,
+		},
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/andyhtran/slacky/internal/output"
 	"github.com/andyhtran/slacky/internal/paths"
 	"github.com/andyhtran/slacky/internal/skill"
 )
@@ -17,7 +18,7 @@ type SkillCmd struct {
 }
 
 type SkillTargetFlags struct {
-	Target   string `help:"Agent target (claude or codex)" name:"target"`
+	Target   string `help:"Agent target (default: claude; one of claude, codex)" name:"target"`
 	Codex    bool   `help:"Shortcut for --target codex" name:"codex"`
 	SkillDir string `help:"Override agent skill directory" name:"skill-dir"`
 }
@@ -46,8 +47,6 @@ type (
 
 type SkillsGetCmd struct {
 	Name string `arg:"" optional:"" help:"Runtime skill name, such as core"`
-	All  bool   `name:"all" help:"Print all visible runtime skills"`
-	Full bool   `name:"full" help:"Include full references/templates where supported"`
 }
 
 func (cmd *SkillSummaryCmd) Run(globals *Globals) error {
@@ -187,26 +186,12 @@ func (cmd *SkillNudgeCmd) Run(globals *Globals) error {
 }
 
 func (cmd *SkillsSummaryCmd) Run(globals *Globals) error {
-	guides := skill.ListGuides()
-	names := make([]string, 0, len(guides))
-	for _, guide := range guides {
-		if guide.Visible {
-			names = append(names, guide.Name)
-		}
-	}
-	text := strings.Join([]string{
-		"Runtime skills",
-		"",
-		"Available:",
-		"  " + strings.Join(names, ", "),
-		"",
-		"Commands:",
-		"  slacky skills list",
-		"  slacky skills get core",
-		"  slacky skills get setup",
-		"  slacky skills get auth",
-		"  slacky skills get --all",
-	}, "\n")
+	return (&SkillsListCmd{}).Run(globals)
+}
+
+func (cmd *SkillsListCmd) Run(globals *Globals) error {
+	guides := visibleRuntimeGuides(skill.ListGuides())
+	text := skillsListText(guides, !globals.JSON && !globals.Raw && !globals.NoColor)
 	return writeEnvelope(globals, Envelope{
 		OK:     true,
 		Text:   text,
@@ -214,37 +199,9 @@ func (cmd *SkillsSummaryCmd) Run(globals *Globals) error {
 	})
 }
 
-func (cmd *SkillsListCmd) Run(globals *Globals) error {
-	guides := skill.ListGuides()
-	lines := []string{"Runtime skills", ""}
-	for _, guide := range guides {
-		if guide.Visible {
-			lines = append(lines, fmt.Sprintf("- %s: %s", guide.Name, guide.Description))
-		}
-	}
-	lines = append(lines, "", "Next:", "  slacky skills get core", "  slacky skills get setup", "  slacky skills get auth")
-	return writeEnvelope(globals, Envelope{
-		OK:     true,
-		Text:   strings.Join(lines, "\n"),
-		Skills: guides,
-	})
-}
-
 func (cmd *SkillsGetCmd) Run(globals *Globals) error {
-	if cmd.All {
-		guides, err := skill.GetAllGuides()
-		if err != nil {
-			return err
-		}
-		text := joinGuideMarkdown(guides)
-		return writeEnvelope(globals, Envelope{
-			OK:     true,
-			Text:   text,
-			Skills: guides,
-		})
-	}
 	if cmd.Name == "" {
-		return missingUsage("missing runtime skill name", "slacky skills get <name>", "slacky skills get core", "slacky skills get --all")
+		return missingUsage("missing runtime skill name", "slacky skills get <name>", "slacky skills get core", "slacky skills list")
 	}
 	guide, err := skill.GetGuide(cmd.Name)
 	if err != nil {
@@ -265,6 +222,40 @@ func resolveSkillStatus(flags SkillTargetFlags) (skill.Target, skill.InstallStat
 	return target, skill.Status(target, appVersion), nil
 }
 
+func skillsListText(guides []skill.RuntimeGuide, styled bool) string {
+	nameWidth := len("NAME")
+	for _, guide := range guides {
+		if len(guide.Name) > nameWidth {
+			nameWidth = len(guide.Name)
+		}
+	}
+	lines := []string{styleIf(styled, output.Bold, "Skills"), ""}
+	if len(guides) == 0 {
+		lines = append(lines, "No bundled runtime skills are visible.", "")
+	} else {
+		lines = append(lines, fmt.Sprintf("  %-*s  %s", nameWidth, "NAME", "DESCRIPTION"))
+		for _, guide := range guides {
+			lines = append(lines, fmt.Sprintf("  %-*s  %s", nameWidth, guide.Name, guide.Description))
+		}
+		lines = append(lines, "")
+	}
+	lines = append(lines, styleIf(styled, output.Dim, "Next:"))
+	for _, guide := range guides {
+		lines = append(lines, "  "+styleIf(styled, output.Cyan, "slacky skills get "+guide.Name))
+	}
+	return strings.Join(lines, "\n")
+}
+
+func visibleRuntimeGuides(guides []skill.RuntimeGuide) []skill.RuntimeGuide {
+	visible := make([]skill.RuntimeGuide, 0, len(guides))
+	for _, guide := range guides {
+		if guide.Visible {
+			visible = append(visible, guide)
+		}
+	}
+	return visible
+}
+
 func skillStatusText(status skill.InstallStatus) string {
 	return strings.Join([]string{
 		"Skill status",
@@ -278,14 +269,4 @@ func skillStatusText(status skill.InstallStatus) string {
 		fmt.Sprintf("Repairable: %t", status.Repairable),
 		fmt.Sprintf("Message: %s", status.Message),
 	}, "\n")
-}
-
-func joinGuideMarkdown(guides []skill.RuntimeGuide) string {
-	parts := make([]string, 0, len(guides))
-	for _, guide := range guides {
-		if guide.Visible {
-			parts = append(parts, guide.Markdown)
-		}
-	}
-	return strings.Join(parts, "\n")
 }
