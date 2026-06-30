@@ -17,7 +17,6 @@ func TestDefaultNextLinesWhenAuthMissing(t *testing.T) {
 		"slacky auth status",
 		"slacky setup wizard",
 		"slacky auth import",
-		"slacky skills list",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("missing auth next lines should contain %q\n%s", want, text)
@@ -35,7 +34,6 @@ func TestDefaultNextLinesWhenAuthReady(t *testing.T) {
 		"slacky search 'from:@sampleuser has:link'",
 		"slacky channels",
 		"slacky search --local 'topic words'",
-		"slacky skills list",
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("ready auth next lines should contain %q\n%s", want, text)
@@ -63,7 +61,7 @@ func TestDefaultDashboardTextContract(t *testing.T) {
 		appDescription,
 		"Auth: ready as @sampleuser",
 		"Cache: 2 messages, 1 channel, 1 user (240 KB)",
-		"Usage:\n  slacky <command> [options]\nStart here (for AI agents):\n  slacky skills get core",
+		"Usage:\n  slacky <command> [options]\nStart here (for AI agents):\n  slacky skills get core\n  slacky skills list\nGuides are version-matched to this binary.",
 		"Next:",
 		"slacky search 'from:@sampleuser has:link'",
 	} {
@@ -71,7 +69,7 @@ func TestDefaultDashboardTextContract(t *testing.T) {
 			t.Fatalf("default dashboard missing %q\n%s", want, text)
 		}
 	}
-	for _, blocked := range []string{"Home:", "More:", "Index:", "/tmp/slacky/cache/index.db", "version"} {
+	for _, blocked := range []string{"Home:", "More:", "Index:", "/tmp/slacky/cache/index.db", "slacky version"} {
 		if strings.Contains(text, blocked) {
 			t.Fatalf("default dashboard should not contain %q\n%s", blocked, text)
 		}
@@ -94,6 +92,8 @@ func TestDefaultDashboardTextStylesTTYOutput(t *testing.T) {
 		"\x1b[2mUsage:\x1b[0m",
 		"\x1b[2mStart here (for AI agents):\x1b[0m",
 		"  \x1b[36mslacky skills get core\x1b[0m",
+		"  \x1b[36mslacky skills list\x1b[0m",
+		"Guides are version-matched to this binary.",
 		"\x1b[2mNext:\x1b[0m",
 		"  \x1b[36mslacky search 'from:@sampleuser has:link'\x1b[0m",
 		"  \x1b[36mslacky channels\x1b[0m",

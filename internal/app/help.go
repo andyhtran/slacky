@@ -55,6 +55,8 @@ Usage:
 
 Start here (for AI agents):
   slacky skills get core
+  slacky skills list
+Guides are version-matched to this binary.
 
 Primary commands:
   slacky search <query>                    - Search Slack messages

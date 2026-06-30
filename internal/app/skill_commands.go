@@ -191,7 +191,8 @@ func (cmd *SkillsSummaryCmd) Run(globals *Globals) error {
 
 func (cmd *SkillsListCmd) Run(globals *Globals) error {
 	guides := visibleRuntimeGuides(skill.ListGuides())
-	text := skillsListText(guides, !globals.JSON && !globals.Raw && !globals.NoColor)
+	styled := !globals.JSON && !globals.Raw && !globals.NoColor
+	text := skillsListText(guides, styled)
 	return writeEnvelope(globals, Envelope{
 		OK:     true,
 		Text:   text,
@@ -223,25 +224,42 @@ func resolveSkillStatus(flags SkillTargetFlags) (skill.Target, skill.InstallStat
 }
 
 func skillsListText(guides []skill.RuntimeGuide, styled bool) string {
+	return skillsListTextWithWidth(guides, styled, output.TerminalWidth())
+}
+
+func skillsListTextWithWidth(guides []skill.RuntimeGuide, styled bool, width int) string {
 	nameWidth := len("NAME")
 	for _, guide := range guides {
-		if len(guide.Name) > nameWidth {
-			nameWidth = len(guide.Name)
+		if output.VisibleWidth(guide.Name) > nameWidth {
+			nameWidth = output.VisibleWidth(guide.Name)
 		}
 	}
 	lines := []string{styleIf(styled, output.Bold, "Skills"), ""}
 	if len(guides) == 0 {
 		lines = append(lines, "No bundled runtime skills are visible.", "")
 	} else {
-		lines = append(lines, fmt.Sprintf("  %-*s  %s", nameWidth, "NAME", "DESCRIPTION"))
+		rows := make([][]string, 0, len(guides))
 		for _, guide := range guides {
-			lines = append(lines, fmt.Sprintf("  %-*s  %s", nameWidth, guide.Name, guide.Description))
+			rows = append(rows, []string{guide.Name, guide.Description})
 		}
+		lines = append(lines, output.TableLines(output.Table{
+			Width:  width,
+			Indent: "  ",
+			Styled: styled,
+			Columns: []output.TableColumn{
+				{Header: "NAME", Width: nameWidth},
+				{Header: "DESCRIPTION", MinWidth: 20, Flex: true},
+			},
+			Rows: rows,
+		})...)
 		lines = append(lines, "")
 	}
 	lines = append(lines, styleIf(styled, output.Dim, "Next:"))
-	for _, guide := range guides {
-		lines = append(lines, "  "+styleIf(styled, output.Cyan, "slacky skills get "+guide.Name))
+	for index, guide := range guides {
+		if index >= 4 {
+			break
+		}
+		lines = append(lines, styleIf(styled, output.Cyan, "  slacky skills get "+guide.Name))
 	}
 	return strings.Join(lines, "\n")
 }

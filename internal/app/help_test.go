@@ -15,6 +15,8 @@ func TestRootHelpTextSections(t *testing.T) {
 		"Usage:",
 		"Start here (for AI agents):",
 		"slacky skills get core",
+		"slacky skills list",
+		"Guides are version-matched to this binary.",
 		"Primary commands:",
 		"Discovery & context:",
 		"Setup & auth:",

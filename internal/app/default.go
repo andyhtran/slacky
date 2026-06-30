@@ -8,7 +8,6 @@ import (
 	"github.com/andyhtran/slacky/internal/config"
 	"github.com/andyhtran/slacky/internal/output"
 	"github.com/andyhtran/slacky/internal/paths"
-	"github.com/andyhtran/slacky/internal/skill"
 	"github.com/andyhtran/slacky/internal/store"
 )
 
@@ -62,43 +61,38 @@ func defaultDashboardText(authStatus config.AuthStatus, cacheStatus store.Status
 		"",
 		"Usage:",
 		"  slacky <command> [options]",
-		"Start here (for AI agents):",
-		"  slacky skills get core",
-		"",
 	)
+	lines = append(lines, rootStartHereLines()...)
+	lines = append(lines, "")
 	lines = append(lines, nextLines...)
 	return strings.Join(styleGuidanceLines(lines, styled), "\n")
 }
 
 func defaultNextLines(authReady bool, authUser string) []string {
 	if !authReady {
-		return appendRuntimeSkillList([]string{
+		return []string{
 			"Next:",
 			"  slacky auth status",
 			"  slacky setup wizard",
 			"  slacky auth import",
-		})
+		}
 	}
-	return appendRuntimeSkillList([]string{
+	return []string{
 		"Next:",
 		"  slacky auth status",
 		"  " + defaultSearchCommand(authUser),
 		"  slacky channels",
 		"  slacky search --local " + shellQuote("topic words"),
-	})
+	}
 }
 
-func appendRuntimeSkillList(lines []string) []string {
-	visible := 0
-	for _, guide := range skill.ListGuides() {
-		if guide.Visible {
-			visible++
-		}
+func rootStartHereLines() []string {
+	return []string{
+		"Start here (for AI agents):",
+		"  slacky skills get core",
+		"  slacky skills list",
+		"Guides are version-matched to this binary.",
 	}
-	if visible > 1 {
-		lines = append(lines, "  slacky skills list")
-	}
-	return lines
 }
 
 func styleGuidanceLines(lines []string, styled bool) []string {

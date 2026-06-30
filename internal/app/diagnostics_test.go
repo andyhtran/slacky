@@ -14,6 +14,7 @@ import (
 
 	"github.com/andyhtran/slacky/internal/api"
 	"github.com/andyhtran/slacky/internal/config"
+	"github.com/andyhtran/slacky/internal/output"
 	"github.com/andyhtran/slacky/internal/paths"
 )
 
@@ -257,6 +258,99 @@ func TestAuthListJSONIncludesProfileSourceAndStorage(t *testing.T) {
 	}
 	if profile.Storage.Kind != "local_file" || profile.Storage.Path == "" || !profile.Token.Present || profile.Token.State != "ready" {
 		t.Fatalf("profile storage/token = %#v", profile)
+	}
+}
+
+func TestAuthListTextUsesBoundedTable(t *testing.T) {
+	profiles := []config.AuthProfileSummary{
+		{
+			Name:             "very-long-profile-name",
+			Active:           true,
+			ReadyForSlack:    true,
+			CredentialSource: "browser_session",
+			Storage:          config.AuthStorageStatus{Kind: "local_file"},
+			Token:            config.AuthTokenStatus{State: "refresh_due"},
+			TeamID:           "T123456789",
+			TeamName:         "Very Long Sample Workspace Name",
+			UserID:           "U999999999",
+			UserName:         "sample.person.with.long.name",
+		},
+	}
+	text := ""
+	for _, width := range []int{80, 100} {
+		text = authListText("very-long-profile-name", profiles, config.AuthStatus{}, false, width)
+		for _, line := range strings.Split(text, "\n") {
+			if got := output.VisibleWidth(line); got > width {
+				t.Fatalf("auth list line width = %d, want <= %d\n%s", got, width, line)
+			}
+		}
+	}
+	for _, want := range []string{"ACTIVE", "NAME", "STATUS", "TEAM", "USER", "SOURCE", "STORAGE", "------", "refresh", "browser", "file", "Next:"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("auth list table missing %q\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "Very Long Sample Workspace Name") || strings.Contains(text, "sample.person.with.long.name") {
+		t.Fatalf("auth list should compact long human cells:\n%s", text)
+	}
+}
+
+func TestAuthListTextStylesTableAndNext(t *testing.T) {
+	output.SetColor(true)
+	defer output.SetColor(false)
+
+	profiles := []config.AuthProfileSummary{{
+		Name:             "work",
+		Active:           true,
+		ReadyForSlack:    true,
+		CredentialSource: "local_file",
+		Storage:          config.AuthStorageStatus{Kind: "local_file"},
+		Token:            config.AuthTokenStatus{State: "ready"},
+		TeamName:         "Sample Workspace",
+		UserName:         "sampleuser",
+	}}
+	text := authListText("work", profiles, config.AuthStatus{}, true, 80)
+	for _, want := range []string{
+		"\x1b[2m  ACTIVE",
+		"\x1b[2m  ------",
+		"\x1b[32mready\x1b[0m",
+		"\x1b[2mNext:\x1b[0m",
+		"\x1b[36m  slacky auth switch <name>\x1b[0m",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("styled auth list missing %q\n%s", want, text)
+		}
+	}
+}
+
+func TestAuthListJSONStartsAtByteOneAndOmitsANSI(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("SLACKY_HOME", home)
+	profilesDir := filepath.Join(home, "auth")
+	if err := config.WriteAuthProfile(profilesDir, "work", config.Auth{
+		AuthKind:  config.AuthKindImportedUserToken,
+		UserToken: "xoxp-test",
+		TeamID:    "T123456",
+		TeamName:  "Sample Workspace",
+		UserID:    "U999999",
+		UserName:  "sampleuser",
+	}); err != nil {
+		t.Fatalf("write auth profile: %v", err)
+	}
+	output.SetColor(true)
+	defer output.SetColor(false)
+
+	text := captureStdout(t, func() {
+		cmd := AuthListCmd{}
+		if err := cmd.Run(&Globals{JSON: true}); err != nil {
+			t.Fatalf("auth list json: %v", err)
+		}
+	})
+	if !strings.HasPrefix(text, "{") {
+		t.Fatalf("auth list JSON should start at byte 1, got %q", text[:min(len(text), 20)])
+	}
+	if strings.Contains(text, "\x1b[") {
+		t.Fatalf("auth list JSON should not contain ANSI:\n%s", text)
 	}
 }
 

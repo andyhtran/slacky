@@ -366,27 +366,11 @@ func (cmd *AuthListCmd) Run(globals *Globals) error {
 	}
 	localStatus := inspectAuthStatus(pathSet)
 
-	lines := []string{
-		"Auth profiles",
-		"",
-		fmt.Sprintf("Active: %s", blank(firstNonEmpty(activeName, "local"))),
-		"  ACTIVE  NAME   STATUS  TEAM  USER  SOURCE  STORAGE",
-	}
-	if len(profiles) == 0 {
-		if localStatus.ReadyForSlack {
-			lines = append(lines, authListLocalLine(localStatus))
-		} else {
-			lines = append(lines, "  (no auth profiles found)")
-		}
-	} else {
-		for index := range profiles {
-			lines = append(lines, authListProfileLine(profiles[index]))
-		}
-	}
-	lines = append(lines, "", output.Dim("Next:"), output.Cyan("  slacky auth switch <name>"), output.Cyan("  slacky auth status --active"))
+	styled := !globals.JSON && !globals.Raw && !globals.NoColor
+	text := authListText(activeName, profiles, localStatus, styled, output.TerminalWidth())
 	return writeEnvelope(globals, Envelope{
 		OK:   true,
-		Text: strings.Join(lines, "\n"),
+		Text: text,
 		Auth: map[string]any{
 			"active_profile": activeName,
 			"local":          authListLocalPayload(localStatus),
@@ -395,40 +379,137 @@ func (cmd *AuthListCmd) Run(globals *Globals) error {
 	})
 }
 
-func authListProfileLine(profile config.AuthProfileSummary) string {
-	return fmt.Sprintf(
-		"  %-6s  %-5s  %-6s  %-4s  %-4s  %-6s  %s",
+func authListText(activeName string, profiles []config.AuthProfileSummary, localStatus config.AuthStatus, styled bool, width int) string {
+	lines := []string{
+		"Auth profiles",
+		"",
+		fmt.Sprintf("Active: %s", blank(firstNonEmpty(activeName, "local"))),
+	}
+	rows := authListRows(profiles, localStatus, styled)
+	if len(rows) == 0 {
+		lines = append(lines, "  (no auth profiles found)")
+	} else {
+		lines = append(lines, output.TableLines(output.Table{
+			Width:  width,
+			Indent: "  ",
+			Styled: styled,
+			Columns: []output.TableColumn{
+				{Header: "ACTIVE", Width: 6},
+				{Header: "NAME", MinWidth: 8, MaxWidth: 12},
+				{Header: "STATUS", Width: 7},
+				{Header: "TEAM", MinWidth: 10, MaxWidth: 20, Flex: true},
+				{Header: "USER", MinWidth: 12, MaxWidth: 20, Flex: true},
+				{Header: "SOURCE", Width: 7},
+				{Header: "STORAGE", Width: 7},
+			},
+			Rows: rows,
+		})...)
+	}
+	lines = append(lines, "", styleIf(styled, output.Dim, "Next:"), styleIf(styled, output.Cyan, "  slacky auth switch <name>"), styleIf(styled, output.Cyan, "  slacky auth status --active"))
+	return strings.Join(lines, "\n")
+}
+
+func authListRows(profiles []config.AuthProfileSummary, localStatus config.AuthStatus, styled bool) [][]string {
+	if len(profiles) == 0 {
+		if !localStatus.ReadyForSlack {
+			return nil
+		}
+		return [][]string{authListLocalRow(localStatus, styled)}
+	}
+	rows := make([][]string, 0, len(profiles))
+	for index := range profiles {
+		rows = append(rows, authListProfileRow(profiles[index], styled))
+	}
+	return rows
+}
+
+func authListProfileRow(profile config.AuthProfileSummary, styled bool) []string {
+	return []string{
 		profileLinePrefix(profile.Active),
 		profile.Name,
-		authListStatusLabel(profile.ReadyForSlack, profile.Token.State),
-		blank(profile.TeamName),
-		authDisplayLabel(profile.UserID, profile.UserName),
-		blank(profile.CredentialSource),
-		blank(profile.Storage.Kind),
-	)
+		authListStatusLabel(profile.ReadyForSlack, profile.Token.State, styled),
+		authListTeamCell(profile.TeamName, profile.TeamID),
+		authListUserCell(profile.UserID, profile.UserName),
+		authListCredentialCell(profile.CredentialSource),
+		authListStorageCell(profile.Storage.Kind),
+	}
 }
 
-func authListLocalLine(status config.AuthStatus) string {
-	return fmt.Sprintf(
-		"  %-6s  %-5s  %-6s  %-4s  %-4s  %-6s  %s",
+func authListLocalRow(status config.AuthStatus, styled bool) []string {
+	return []string{
 		profileLinePrefix(true),
 		"local",
-		authListStatusLabel(status.ReadyForSlack, status.Token.State),
-		blank(status.TeamName),
-		authDisplayLabel(status.UserID, status.UserName),
-		blank(status.CredentialSource),
-		blank(status.Storage.Kind),
-	)
+		authListStatusLabel(status.ReadyForSlack, status.Token.State, styled),
+		authListTeamCell(status.TeamName, status.TeamID),
+		authListUserCell(status.UserID, status.UserName),
+		authListCredentialCell(status.CredentialSource),
+		authListStorageCell(status.Storage.Kind),
+	}
 }
 
-func authListStatusLabel(ready bool, tokenState string) string {
+func authListStatusLabel(ready bool, tokenState string, styled bool) string {
+	label := compactAuthListStatus(ready, tokenState)
+	switch label {
+	case "ready":
+		return styleIf(styled, output.Green, label)
+	case "refresh":
+		return styleIf(styled, output.Yellow, label)
+	case "missing", "expired", "partial":
+		return styleIf(styled, output.Red, label)
+	default:
+		return label
+	}
+}
+
+func compactAuthListStatus(ready bool, tokenState string) string {
 	if !ready {
+		if tokenState == "incomplete" {
+			return "partial"
+		}
 		return "missing"
 	}
-	if tokenState == "" {
+	switch tokenState {
+	case "", "ready":
 		return "ready"
+	case "refresh_due":
+		return "refresh"
+	case "incomplete":
+		return "partial"
+	default:
+		return tokenState
 	}
-	return tokenState
+}
+
+func authListTeamCell(teamName string, teamID string) string {
+	return blank(firstNonEmpty(teamName, teamID))
+}
+
+func authListUserCell(userID string, userName string) string {
+	return blank(authMentionLabel(userID, userName))
+}
+
+func authListCredentialCell(source string) string {
+	switch source {
+	case "browser_session":
+		return "browser"
+	case "local_file":
+		return "file"
+	case "":
+		return blank("")
+	default:
+		return source
+	}
+}
+
+func authListStorageCell(kind string) string {
+	switch kind {
+	case "local_file":
+		return "file"
+	case "":
+		return blank("")
+	default:
+		return kind
+	}
 }
 
 func authListLocalPayload(status config.AuthStatus) map[string]any {

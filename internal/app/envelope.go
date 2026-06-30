@@ -48,6 +48,7 @@ func writeEnvelope(globals *Globals, envelope Envelope) error {
 }
 
 func enrichEnvelopeForJSON(envelope Envelope) Envelope {
+	envelope.Text = output.StripANSI(envelope.Text)
 	envelope.Results = enrichJSONValue(envelope.Results)
 	envelope.Message = enrichJSONValue(envelope.Message)
 	envelope.Thread = enrichJSONValue(envelope.Thread)
